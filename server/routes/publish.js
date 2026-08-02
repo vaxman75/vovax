@@ -27,6 +27,84 @@ const SIGNAL_SCRIPTS = {
   genre_deep_dive:  ["Heavy melodic techno: the sound of the underground right now.", "The underground is alive. This is what it sounds like.", "Dark, hypnotic, uncompromising."],
 };
 
+// ─── HeyGen top-picks (server-side replica of HeyGenBrowser scoring) ──────────
+
+const PERSONA_AVATAR = {
+  vovax:  { include: ['dark','night','moody','minimal','underground','studio','street'], exclude: ['office','corporate','sofa','business','bright','suit','formal'] },
+  signal: { include: ['urban','street','casual','outdoor','city','energetic','night','underground'], exclude: ['office','corporate','sofa','business','formal','suit'] },
+};
+
+function scoreAvatar(a, persona) {
+  const name = (a.name || '').toLowerCase();
+  const { include, exclude } = PERSONA_AVATAR[persona] ?? PERSONA_AVATAR.vovax;
+  if (exclude.some((w) => name.includes(w))) return 0;
+  return include.filter((w) => name.includes(w)).length;
+}
+
+function scoreVoice(v) {
+  const lang = (v.language || '').toLowerCase();
+  if (!lang.includes('english')) return 0;
+  let score = 1;
+  if (v.emotion_support) score += 1;
+  if (v.preview_audio)   score += 1;
+  return score;
+}
+
+// 10-minute in-memory cache so we don't hammer HeyGen API on every publish check
+let _heygenCache = null;
+let _heygenCacheAt = 0;
+const HEYGEN_CACHE_TTL = 10 * 60 * 1000;
+
+async function fetchHeyGenData() {
+  const now = Date.now();
+  if (_heygenCache && (now - _heygenCacheAt) < HEYGEN_CACHE_TTL) return _heygenCache;
+
+  const apiKey = process.env.HEYGEN_API_KEY;
+  if (!apiKey || apiKey === 'placeholder') throw new Error('HEYGEN_API_KEY not set');
+
+  const [avatarRes, voiceRes] = await Promise.all([
+    fetch('https://api.heygen.com/v2/avatars',    { headers: { 'X-Api-Key': apiKey } }),
+    fetch('https://api.heygen.com/v1/voice.list', { headers: { 'X-Api-Key': apiKey } }),
+  ]);
+  const avatarData = await avatarRes.json();
+  const voiceData  = await voiceRes.json();
+
+  const avatars = (avatarData.data?.avatars ?? []).map(({ avatar_id, avatar_name, gender }) => ({
+    avatar_id, name: avatar_name ?? null, gender: gender ?? null,
+  }));
+  const voices = (voiceData.data?.list ?? voiceData.data?.voices ?? []).map(
+    ({ voice_id, name, language, gender, preview_audio, emotion_support }) => ({
+      voice_id, name: name ?? null, language: language ?? null, gender: gender ?? null,
+      preview_audio: preview_audio ?? null, emotion_support: emotion_support ?? false,
+    })
+  );
+
+  _heygenCache = { avatars, voices };
+  _heygenCacheAt = now;
+  return _heygenCache;
+}
+
+async function getTopPicks(persona) {
+  const { avatars, voices } = await fetchHeyGenData();
+
+  const topAvatar = avatars
+    .map((a) => ({ ...a, _score: scoreAvatar(a, persona) }))
+    .filter((a) => a._score > 0)
+    .sort((a, b) => b._score - a._score)[0] ?? null;
+
+  const topVoice = voices
+    .map((v) => ({ ...v, _score: scoreVoice(v) }))
+    .filter((v) => v._score > 0)
+    .sort((a, b) => b._score - a._score)[0] ?? null;
+
+  return {
+    avatar_id:   topAvatar?.avatar_id ?? null,
+    avatar_name: topAvatar?.name      ?? null,
+    voice_id:    topVoice?.voice_id   ?? null,
+    voice_name:  topVoice?.name       ?? null,
+  };
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
@@ -148,12 +226,34 @@ router.post('/vovax/:id/reject', async (req, res) => {
   res.json({ ok: true, item: rows[0] });
 });
 
-// Zapier polls this every hour — returns oldest approved item to publish
-router.get('/vovax/next-approved', async (_req, res) => {
-  const { rows } = await pool.query(
-    `SELECT * FROM publish_queue WHERE channel='vovax' AND status='approved' ORDER BY decided_at ASC LIMIT 1`
-  );
-  res.json({ item: rows[0] ?? null });
+// Zapier polls this every hour — returns oldest approved item + resolved IDs for HeyGen
+// Optional ?platform=instagram|tiktok to filter by platform
+router.get('/vovax/next-approved', async (req, res) => {
+  const platform = req.query.platform;
+  const { rows } = platform
+    ? await pool.query(
+        `SELECT * FROM publish_queue WHERE channel='vovax' AND status='approved' AND platform=$1 ORDER BY decided_at ASC LIMIT 1`,
+        [platform]
+      )
+    : await pool.query(
+        `SELECT * FROM publish_queue WHERE channel='vovax' AND status='approved' ORDER BY decided_at ASC LIMIT 1`
+      );
+
+  const item = rows[0] ?? null;
+  if (!item) return res.json({ item: null });
+
+  try {
+    const picks = await getTopPicks('vovax');
+    // Alex may have set a specific avatar_id when approving; fall back to top pick otherwise
+    item.resolved_avatar_id = item.avatar_id || picks.avatar_id;
+    item.voice_id           = picks.voice_id;
+    item.avatar_name        = picks.avatar_name;
+    item.voice_name         = picks.voice_name;
+  } catch {
+    // HeyGen API unavailable — return item without resolved IDs
+  }
+
+  res.json({ item });
 });
 
 // Zapier calls after successful publish
@@ -192,7 +292,10 @@ router.get('/signal/brief', async (_req, res) => {
       [id, platform, topic, script, scriptHash(script), now]
     );
 
-    res.json({ id, topic, script, avatar_ids_to_avoid: usedAvatarIds });
+    let picks = { avatar_id: null, avatar_name: null, voice_id: null, voice_name: null };
+    try { picks = await getTopPicks('signal'); } catch { /* HeyGen API unavailable */ }
+
+    res.json({ id, topic, script, avatar_ids_to_avoid: usedAvatarIds, ...picks });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -209,6 +312,18 @@ router.post('/signal/mark-published', async (req, res) => {
   );
   if (!rows[0]) return res.status(404).json({ error: 'not found' });
   res.json({ ok: true, item: rows[0] });
+});
+
+// ─── Top-picks endpoint (debug / manual inspection) ──────────────────────────
+
+router.get('/top-picks', async (req, res) => {
+  const persona = req.query.persona === 'signal' ? 'signal' : 'vovax';
+  try {
+    const picks = await getTopPicks(persona);
+    res.json({ persona, ...picks });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ─── Shared history endpoint ──────────────────────────────────────────────────
