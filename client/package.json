@@ -1,6 +1,7 @@
 {
   "name": "vovax-client",
   "private": true,
+  "type": "module",
   "version": "1.0.0",
   "scripts": {
     "dev": "vite",
