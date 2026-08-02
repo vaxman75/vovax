@@ -184,8 +184,12 @@ async function generateScript(persona, track, topic) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return null; // graceful fallback — caller uses hardcoded script
 
-  const angle = TOPIC_ANGLE[topic] ?? '';
-  const desc  = (track.description ?? '').slice(0, 300);
+  const angle   = TOPIC_ANGLE[topic] ?? '';
+  const rawDesc = (track.description ?? '').slice(0, 300);
+  // Redact artist references from description before sending to Signal Detected prompt
+  const desc = persona === 'signal'
+    ? rawDesc.replace(/vovax/gi, '[artist]')
+    : rawDesc;
 
   let prompt;
   if (persona === 'signal') {
