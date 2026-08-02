@@ -6,6 +6,7 @@ import AceStep from './pages/AceStep.jsx';
 import Higgsfield from './pages/Higgsfield.jsx';
 import OpsBoard from './pages/OpsBoard.jsx';
 import Gigs from './pages/Gigs.jsx';
+import HeyGen from './pages/HeyGen.jsx';
 
 const NAV = [
   { to: '/', label: 'משימות' },
@@ -14,6 +15,7 @@ const NAV = [
   { to: '/ops', label: 'תיאום' },
   { to: '/acestep', label: 'ACE-Step' },
   { to: '/higgsfield', label: 'Higgsfield' },
+  { to: '/heygen', label: 'HeyGen' },
 ];
 
 export default function App() {
@@ -58,6 +60,7 @@ export default function App() {
           <Route path="/ops" element={<OpsBoard />} />
           <Route path="/acestep" element={<AceStep />} />
           <Route path="/higgsfield" element={<Higgsfield />} />
+          <Route path="/heygen" element={<HeyGen />} />
         </Routes>
       </div>
     </BrowserRouter>
