@@ -5,7 +5,7 @@ import pool from './index.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const MIGRATIONS = ['001_init.sql', '002_publish_queue.sql'];
+const MIGRATIONS = ['001_init.sql', '002_publish_queue.sql', '003_tracks.sql'];
 
 export async function runMigrations() {
   for (const file of MIGRATIONS) {

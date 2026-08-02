@@ -148,6 +148,93 @@ async function nextGig() {
   return { venue: g.city ? `${g.venue}, ${g.city}` : g.venue, date: dateStr };
 }
 
+// ─── Track helpers ────────────────────────────────────────────────────────────
+
+async function pickUnusedTrack(lookback = 10) {
+  const { rows } = await pool.query(
+    `WITH recent AS (
+       SELECT track_id FROM publish_queue
+       WHERE  track_id IS NOT NULL
+       ORDER  BY created_at DESC LIMIT $1
+     )
+     SELECT * FROM tracks
+     WHERE  id NOT IN (SELECT track_id FROM recent)
+     ORDER  BY RANDOM() LIMIT 1`,
+    [lookback]
+  );
+  if (rows[0]) return rows[0];
+  const { rows: any } = await pool.query('SELECT * FROM tracks ORDER BY RANDOM() LIMIT 1');
+  return any[0] ?? null;
+}
+
+// Topic → posting angle for Claude prompt
+const TOPIC_ANGLE = {
+  track_release:    'You just released this track. The post is about the release.',
+  behind_scenes:    'You are in the studio, working on or inspired by this track.',
+  studio_session:   'Late night studio session. Deep in the sound of this track.',
+  fan_message:      'This track exists because of your fans. Express gratitude through the lens of this music.',
+  discovery:        'You just discovered this underground track. Express the excitement of the find.',
+  track_feature:    'Highlight what makes this track stand out from the underground.',
+  underground_pick: 'This is your underground pick of the week.',
+  artist_spotlight: 'Spotlight the artistic vision behind this track (without naming the artist).',
+  genre_deep_dive:  'Use this track as a lens into the heavy melodic techno underground.',
+};
+
+async function generateScript(persona, track, topic) {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) return null; // graceful fallback — caller uses hardcoded script
+
+  const angle = TOPIC_ANGLE[topic] ?? '';
+  const desc  = (track.description ?? '').slice(0, 300);
+
+  let prompt;
+  if (persona === 'signal') {
+    prompt = `You are Signal Detected, an anonymous underground music curator posting on Instagram/TikTok.
+${angle}
+
+Track: "${track.title}"
+Genre: ${track.genre ?? 'underground techno'}
+${desc ? `Description: ${desc}` : ''}
+
+Write one short curator post (max 120 characters). Rules:
+- NEVER mention the artist name or "VOVAX"
+- NEVER say "underground" or "heavy melodic techno" verbatim — imply it
+- Tone: energetic scout who found something first
+- No hashtags, no emojis
+Write only the post text, nothing else.`;
+  } else {
+    prompt = `You are VOVAX, an underground heavy melodic techno artist posting on Instagram/TikTok.
+${angle}
+
+Track: "${track.title}"
+Genre: ${track.genre ?? 'heavy melodic techno'}
+${desc ? `Description: ${desc}` : ''}
+
+Write one short first-person post (max 120 characters). Rules:
+- Dark, minimal, intimate tone
+- No hashtags, no emojis
+Write only the post text, nothing else.`;
+  }
+
+  const r = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'x-api-key':         apiKey,
+      'anthropic-version': '2023-06-01',
+      'content-type':      'application/json',
+    },
+    body: JSON.stringify({
+      model:      'claude-haiku-4-5-20251001',
+      max_tokens: 150,
+      messages:   [{ role: 'user', content: prompt }],
+    }),
+  });
+
+  const data = await r.json();
+  if (!r.ok) return null;
+  return data.content?.[0]?.text?.trim() ?? null;
+}
+
 // ─── VOVAX endpoints ──────────────────────────────────────────────────────────
 
 // Zapier calls this on schedule → creates pending item, waits for manual approval
@@ -158,17 +245,30 @@ router.post('/vovax/generate', async (req, res) => {
     const usedAvatarIds = await recentAvatarIds('vovax', 5);
     const topic = req.body.topic ?? pickTopic(VOVAX_TOPICS, usedTopics);
 
-    let scriptTemplate = pickFrom(VOVAX_SCRIPTS[topic] ?? VOVAX_SCRIPTS.studio_session);
+    let scriptTemplate = null;
+    let trackId        = null;
 
-    // Fill gig placeholder if needed
-    if (scriptTemplate.includes('{venue}')) {
+    if (topic === 'gig_announcement') {
+      // Gig announcements need venue/date — keep hardcoded flow
+      const tpl = pickFrom(VOVAX_SCRIPTS.gig_announcement);
       const gig = await nextGig();
       if (gig) {
-        scriptTemplate = scriptTemplate.replace('{venue}', gig.venue).replace('{date}', gig.date);
+        scriptTemplate = tpl.replace('{venue}', gig.venue).replace('{date}', gig.date);
       } else {
-        // No upcoming gig — fall back to different topic
         const fallback = pickTopic(VOVAX_TOPICS.filter((t) => t !== 'gig_announcement'), usedTopics);
         scriptTemplate = pickFrom(VOVAX_SCRIPTS[fallback]);
+      }
+    } else {
+      // Try track-aware Claude generation
+      const track = await pickUnusedTrack();
+      if (track) {
+        trackId        = track.id;
+        scriptTemplate = await generateScript('vovax', track, topic);
+      }
+      // Fall back to hardcoded library if Claude unavailable or no tracks synced
+      if (!scriptTemplate) {
+        scriptTemplate = pickFrom(VOVAX_SCRIPTS[topic] ?? VOVAX_SCRIPTS.studio_session);
+        trackId        = null;
       }
     }
 
@@ -182,12 +282,14 @@ router.post('/vovax/generate', async (req, res) => {
       avatar_id: req.body.avatar_id ?? null,
       status: 'pending',
       created_at: Date.now(),
+      track_id: trackId,
     };
 
     await pool.query(
-      `INSERT INTO publish_queue (id,channel,platform,topic,script,script_hash,avatar_id,status,created_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-      [item.id, item.channel, item.platform, item.topic, item.script, item.script_hash, item.avatar_id, item.status, item.created_at]
+      `INSERT INTO publish_queue (id,channel,platform,topic,script,script_hash,avatar_id,status,created_at,track_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+      [item.id, item.channel, item.platform, item.topic, item.script, item.script_hash,
+       item.avatar_id, item.status, item.created_at, item.track_id]
     );
 
     res.json({ ok: true, item, avatar_ids_to_avoid: usedAvatarIds });
@@ -284,18 +386,35 @@ router.get('/signal/brief', async (_req, res) => {
       return res.status(500).json({ error: 'script_contains_vovax — content library error' });
     }
 
-    const id   = uid();
-    const now  = Date.now();
+    // Try track-aware Claude generation
+    let trackId = null;
+    let finalScript = script; // default: hardcoded
+    const track = await pickUnusedTrack();
+    if (track) {
+      const claudeScript = await generateScript('signal', track, topic);
+      if (claudeScript && !/vovax/i.test(claudeScript)) {
+        finalScript = claudeScript;
+        trackId     = track.id;
+      }
+    }
+
+    // VOVAX guard on final script (hardcoded or Claude-generated)
+    if (/vovax/i.test(finalScript)) {
+      return res.status(500).json({ error: 'script_contains_vovax — content library error' });
+    }
+
+    const id  = uid();
+    const now = Date.now();
     await pool.query(
-      `INSERT INTO publish_queue (id,channel,platform,topic,script,script_hash,status,created_at)
-       VALUES ($1,'signal',$2,$3,$4,$5,'pending',$6)`,
-      [id, platform, topic, script, scriptHash(script), now]
+      `INSERT INTO publish_queue (id,channel,platform,topic,script,script_hash,status,created_at,track_id)
+       VALUES ($1,'signal',$2,$3,$4,$5,'pending',$6,$7)`,
+      [id, platform, topic, finalScript, scriptHash(finalScript), now, trackId]
     );
 
     let picks = { avatar_id: null, avatar_name: null, voice_id: null, voice_name: null };
     try { picks = await getTopPicks('signal'); } catch { /* HeyGen API unavailable */ }
 
-    res.json({ id, topic, script, avatar_ids_to_avoid: usedAvatarIds, ...picks });
+    res.json({ id, topic, script: finalScript, avatar_ids_to_avoid: usedAvatarIds, track_id: trackId, ...picks });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

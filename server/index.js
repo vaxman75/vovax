@@ -16,6 +16,8 @@ import higgsfieldRouter from './routes/higgsfield.js';
 import heygenRouter from './routes/heygen.js';
 import elevenlabsRouter from './routes/elevenlabs.js';
 import publishRouter from './routes/publish.js';
+import soundcloudRouter from './routes/soundcloud.js';
+import tracksRouter from './routes/tracks.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -72,6 +74,8 @@ app.use('/api/higgsfield', higgsfieldRouter);
 app.use('/api/heygen', heygenRouter);
 app.use('/api/elevenlabs', elevenlabsRouter);
 app.use('/api/publish', publishRouter);
+app.use('/api/soundcloud', soundcloudRouter);
+app.use('/api/tracks', tracksRouter);
 
 // Serve React build in production
 if (process.env.NODE_ENV === 'production') {
