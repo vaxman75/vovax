@@ -72,10 +72,34 @@ export default function HeyGenBrowser() {
       <h1 style={{ fontFamily: "'Space Grotesk', sans-serif" }} className="text-2xl font-bold mb-1">אווטארים וקולות זמינים</h1>
       <p style={{ color: '#8B8A85' }} className="text-sm mb-6">רשימה מחשבון HeyGen שלך — לחץ "העתק" כדי לקחת ID לעמוד HeyGen</p>
 
-      <svg width="100%" height="28" viewBox="0 0 400 28" className="mb-8" preserveAspectRatio="none">
+      <svg width="100%" height="28" viewBox="0 0 400 28" className="mb-6" preserveAspectRatio="none">
         <path d="M0 14 L40 14 L48 4 L56 24 L64 14 L100 14 L108 8 L116 20 L124 14 L400 14"
           fill="none" stroke="#46C7FF" strokeWidth="1.5" className="pulse-line" />
       </svg>
+
+      {/* Persona reminder — see docs/signal-detected-persona.md */}
+      <div style={{ background: '#0E0E11', border: '1px solid #232326', borderRadius: 8 }} className="p-4 mb-8">
+        <p style={{ color: '#46C7FF', fontFamily: "'Space Grotesk', sans-serif" }} className="text-xs uppercase tracking-widest mb-2">
+          לאיזו פרסונה אתה בוחר?
+        </p>
+        <div className="flex gap-4 text-sm">
+          <div style={{ flex: 1, borderRight: '1px solid #232326', paddingRight: 16 }}>
+            <p className="font-semibold mb-1">VOVAX / אלכס</p>
+            <p style={{ color: '#8B8A85' }} className="text-xs leading-relaxed">
+              גוף ראשון אישי. טון אינטימי. אווטאר שמייצג אמן טכנו underground ברצינות — ויזואל כהה, מינימלי.
+            </p>
+          </div>
+          <div style={{ flex: 1 }}>
+            <p className="font-semibold mb-1">Signal Detected</p>
+            <p style={{ color: '#8B8A85' }} className="text-xs leading-relaxed">
+              סקאוט/קיוריטור אנונימי (@underground.signal). מציג את VOVAX כתגלית — לא אלכס מדבר בעצמו. טון נלהב יותר, אנרגטי, אסתטיקת לייף underground.
+            </p>
+          </div>
+        </div>
+        <p style={{ color: '#8B8A85' }} className="text-xs mt-3">
+          → תיעוד מלא: <code style={{ color: '#46C7FF' }}>docs/signal-detected-persona.md</code>
+        </p>
+      </div>
 
       {/* Avatars */}
       <Section title={`אווטארים (${avatars.length})`} loading={avatarLoading} error={avatarError}>
