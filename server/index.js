@@ -37,6 +37,30 @@ app.get('/api/digest/preview', async (_req, res) => {
   }
 });
 
+// Trigger a real digest send immediately (for testing)
+app.post('/api/digest/send-test', async (_req, res) => {
+  const apiKey = process.env.RESEND_API_KEY;
+  const recipient = process.env.DIGEST_RECIPIENT_EMAIL;
+  if (!apiKey || !recipient) return res.status(500).json({ error: 'RESEND_API_KEY or DIGEST_RECIPIENT_EMAIL not set' });
+  try {
+    const { Resend } = await import('resend');
+    const resend = new Resend(apiKey);
+    const html = await buildDigestHtml();
+    const from = process.env.DIGEST_FROM_EMAIL || 'VOVAX Digest <onboarding@resend.dev>';
+    const date = new Date().toLocaleDateString('he-IL', { timeZone: 'Asia/Jerusalem', day: 'numeric', month: 'long' });
+    const { data, error } = await resend.emails.send({
+      from,
+      to: [recipient],
+      subject: `VOVAX · תדריך בוקר (בדיקה) — ${date}`,
+      html,
+    });
+    if (error) return res.status(500).json({ error });
+    res.json({ ok: true, id: data?.id, to: recipient });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // API routes
 app.use('/api/tasks', tasksRouter);
 app.use('/api/meetings', meetingsRouter);
