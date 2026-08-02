@@ -3,11 +3,17 @@ import { BrowserRouter, Routes, Route, NavLink } from 'react-router-dom';
 import Tasks from './pages/Tasks.jsx';
 import Board from './pages/Board.jsx';
 import AceStep from './pages/AceStep.jsx';
+import Higgsfield from './pages/Higgsfield.jsx';
+import OpsBoard from './pages/OpsBoard.jsx';
+import Gigs from './pages/Gigs.jsx';
 
 const NAV = [
   { to: '/', label: 'משימות' },
-  { to: '/board', label: 'ישיבת הנהלה' },
+  { to: '/board', label: 'הנהלה' },
+  { to: '/gigs', label: 'הופעות' },
+  { to: '/ops', label: 'תיאום' },
   { to: '/acestep', label: 'ACE-Step' },
+  { to: '/higgsfield', label: 'Higgsfield' },
 ];
 
 export default function App() {
@@ -15,21 +21,14 @@ export default function App() {
     <BrowserRouter>
       <div dir="rtl" style={{ minHeight: '100vh', background: '#0A0A0C' }}>
         <nav
-          style={{
-            borderBottom: '1px solid #232326',
-            background: '#0D0D10',
-            fontFamily: "'Space Grotesk', sans-serif",
-          }}
+          style={{ borderBottom: '1px solid #232326', background: '#0D0D10', fontFamily: "'Space Grotesk', sans-serif" }}
           className="sticky top-0 z-10"
         >
-          <div className="max-w-xl mx-auto px-5 flex items-center gap-1 h-12">
-            <span
-              style={{ color: '#46C7FF', letterSpacing: '0.15em', fontSize: 13, fontWeight: 700 }}
-              className="ml-auto"
-            >
+          <div className="max-w-3xl mx-auto px-5 flex items-center h-12 gap-1">
+            <span style={{ color: '#46C7FF', letterSpacing: '0.15em', fontSize: 13, fontWeight: 700, marginLeft: 'auto' }}>
               VOVAX
             </span>
-            <div className="flex gap-1 mr-4">
+            <div className="flex gap-1 mr-4 flex-wrap">
               {NAV.map((n) => (
                 <NavLink
                   key={n.to}
@@ -38,10 +37,11 @@ export default function App() {
                   style={({ isActive }) => ({
                     padding: '4px 10px',
                     borderRadius: 6,
-                    fontSize: 13,
+                    fontSize: 12,
                     color: isActive ? '#46C7FF' : '#8B8A85',
                     background: isActive ? '#131316' : 'transparent',
                     textDecoration: 'none',
+                    whiteSpace: 'nowrap',
                   })}
                 >
                   {n.label}
@@ -54,7 +54,10 @@ export default function App() {
         <Routes>
           <Route path="/" element={<Tasks />} />
           <Route path="/board" element={<Board />} />
+          <Route path="/gigs" element={<Gigs />} />
+          <Route path="/ops" element={<OpsBoard />} />
           <Route path="/acestep" element={<AceStep />} />
+          <Route path="/higgsfield" element={<Higgsfield />} />
         </Routes>
       </div>
     </BrowserRouter>

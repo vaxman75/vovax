@@ -7,6 +7,8 @@ import { runMigrations } from './db/migrate.js';
 
 import tasksRouter from './routes/tasks.js';
 import meetingsRouter from './routes/meetings.js';
+import opsRouter from './routes/ops.js';
+import gigsRouter from './routes/gigs.js';
 import acestepRouter from './routes/acestep.js';
 import higgsfieldRouter from './routes/higgsfield.js';
 import heygenRouter from './routes/heygen.js';
@@ -25,6 +27,8 @@ app.get('/health', (_req, res) => res.json({ ok: true }));
 // API routes
 app.use('/api/tasks', tasksRouter);
 app.use('/api/meetings', meetingsRouter);
+app.use('/api/ops', opsRouter);
+app.use('/api/gigs', gigsRouter);
 app.use('/api/acestep', acestepRouter);
 app.use('/api/higgsfield', higgsfieldRouter);
 app.use('/api/heygen', heygenRouter);
