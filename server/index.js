@@ -4,6 +4,8 @@ import cors from 'cors';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { runMigrations } from './db/migrate.js';
+import { startCron } from './cron.js';
+import { buildDigestHtml } from './digest.js';
 
 import tasksRouter from './routes/tasks.js';
 import meetingsRouter from './routes/meetings.js';
@@ -24,6 +26,17 @@ app.use(express.json());
 // Health check for Railway
 app.get('/health', (_req, res) => res.json({ ok: true }));
 
+// Preview digest HTML in browser (no email sent)
+app.get('/api/digest/preview', async (_req, res) => {
+  try {
+    const html = await buildDigestHtml();
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(html);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // API routes
 app.use('/api/tasks', tasksRouter);
 app.use('/api/meetings', meetingsRouter);
@@ -43,6 +56,7 @@ if (process.env.NODE_ENV === 'production') {
 
 async function start() {
   await runMigrations();
+  startCron();
   app.listen(PORT, () => console.log(`VOVAX server on port ${PORT}`));
 }
 
