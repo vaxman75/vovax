@@ -9,7 +9,7 @@
   "scripts": {
     "start": "node server/index.js",
     "dev": "nodemon server/index.js",
-    "build": "npm run build --prefix client",
+    "build": "npm install --include=dev --prefix client && npm run build --prefix client",
     "build:start": "npm run build && npm start"
   },
   "dependencies": {
