@@ -9,6 +9,7 @@ import Gigs from './pages/Gigs.jsx';
 import HeyGen from './pages/HeyGen.jsx';
 import HeyGenBrowser from './pages/HeyGenBrowser.jsx';
 import ElevenLabs from './pages/ElevenLabs.jsx';
+import ElevenLabsBrowser from './pages/ElevenLabsBrowser.jsx';
 
 const NAV = [
   { to: '/', label: 'משימות' },
@@ -20,6 +21,7 @@ const NAV = [
   { to: '/heygen', label: 'HeyGen' },
   { to: '/heygen-browser', label: 'HeyGen Assets' },
   { to: '/elevenlabs', label: 'ElevenLabs' },
+  { to: '/elevenlabs-browser', label: 'EL Voices' },
 ];
 
 export default function App() {
@@ -67,6 +69,7 @@ export default function App() {
           <Route path="/heygen" element={<HeyGen />} />
           <Route path="/heygen-browser" element={<HeyGenBrowser />} />
           <Route path="/elevenlabs" element={<ElevenLabs />} />
+          <Route path="/elevenlabs-browser" element={<ElevenLabsBrowser />} />
         </Routes>
       </div>
     </BrowserRouter>

@@ -44,11 +44,19 @@ router.post('/tts', async (req, res) => {
 
 router.get('/voices', async (_req, res) => {
   const apiKey = process.env.ELEVENLABS_API_KEY;
-  if (!apiKey) return res.status(500).json({ error: 'ELEVENLABS_API_KEY not set' });
+  if (!apiKey || apiKey === 'placeholder') return res.status(500).json({ error: 'ELEVENLABS_API_KEY not set' });
 
   const upstream = await fetch(`${EL_BASE}/voices`, { headers: { 'xi-api-key': apiKey } });
   const data = await upstream.json();
-  res.status(upstream.status).json(data);
+  const voices = (data.voices ?? []).map(({ voice_id, name, category, labels, preview_url }) => ({
+    voice_id, name, category,
+    gender:   labels?.gender   ?? null,
+    accent:   labels?.accent   ?? null,
+    age:      labels?.age      ?? null,
+    use_case: labels?.use_case ?? null,
+    preview_url: preview_url ?? null,
+  }));
+  res.status(upstream.status).json({ voices });
 });
 
 export default router;
