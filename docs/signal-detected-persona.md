@@ -1,16 +1,49 @@
-# פרסונת Signal Detected — נפרדת ממדריך הקול הראשי של VOVAX
+# פרסונת Signal Detected — נפרדת ומנותקת לחלוטין מ-VOVAX
 
-זו פרסונה שונה מ-VOVAX בגוף ראשון. Signal Detected (@underground.signal, @signaldetected.official) הוא חשבון "גילוי מוזיקה" אנונימי שמציג את VOVAX כתגלית - לא VOVAX עצמו מדבר.
+Signal Detected (@underground.signal, @signaldetected.official) הוא ערוץ קיוריטור/חברת-בת אנונימי לחלוטין.
 
-## על מה מדברים
-- תגובות/היפ על טראקים - לא הסיפור האישי של אלכס
-- מסגור של "גילוי" - "התגלית הזאת שאתה חייב להכיר", תגובה לדרופ, טיזר לריליס קרוב
-- טון: "גילינו את זה קודם כולם" (קיוריטור/סקאוט), לא וידוי אישי
+## כלל ברזל: אין קישור גלוי ל-VOVAX
 
-## מה הם מייצגים
-- סקאוט/קיוריטור אנונימי שחושף מוזיקה טכנו underground - לא VOVAX/אלכס עצמו
-- קול (אם נבחר) יכול להיות אנרגטי/נלהב יותר מהטון האינטימי של VOVAX - מתאים ל"מגלה תגלית"
+- **לעולם לא** להזכיר "VOVAX" בשם בתוכן של Signal Detected
+- **לעולם לא** להזכיר handles כמו @vovaxofficial
+- **לעולם לא** לרמוז על קשר ישיר בין Signal Detected לאמן ספציפי
+- שפת תוכן: **אנגלית בלבד** (ברירת מחדל)
+- Signal Detected מדבר על **ז'אנר/סאונד/אמן-ללא-שם** — לא על VOVAX כישות
 
-## איך להתלבש/להיראות
-- אסתטיקת חיי לילה / underground - כהה, מינימלי, תאורה מעורפלת
-- תואם לסאונד (heavy melodic techno) אבל ויזואלית נפרד מהפרסונה של אלכס עצמו
+כל סקריפט שיוצא מ-`/api/publish/signal/brief` עובר בדיקה אוטומטית:
+```
+if (/vovax/i.test(script)) → error: script_contains_vovax
+```
+
+## טון ואסתטיקה
+
+- קיוריטור סקאוט — "גילינו את זה קודם כולם"
+- אנרגטי ונלהב יותר מהטון האינטימי של VOVAX
+- מסגור: "this artist", "this release", "underground talent" — לא שמות
+- ויזואלי: אסתטיקת לייף לילה / underground — כהה, מינימלי, תאורה מעורפלת
+- **אווטאר שונה** מזה שמשמש את ערוץ VOVAX (anti-repetition cross-channel)
+
+## תזמון (Zapier)
+
+- כל 3 ימים ב-19:00 שעון ישראל
+- פרסום **אוטומטי לחלוטין** — ללא אישור ידני
+- Zap: Schedule → GET /api/publish/signal/brief → HeyGen → Instagram/TikTok → POST /api/publish/signal/mark-published
+
+## נושאים מותרים ל-Signal Detected
+
+- discovery: גילוי טראק חדש
+- track_feature: הייליט טראק underground
+- underground_pick: בחירת השבוע
+- artist_spotlight: זרקור על אמן (ללא שם)
+- genre_deep_dive: עומק ז'אנר heavy melodic techno
+
+## הפרדה מ-VOVAX
+
+| | VOVAX | Signal Detected |
+|---|---|---|
+| גוף | ראשון ("I") | שלישי ("this artist") |
+| קישור לאמן | שם מלא + handle | לעולם לא |
+| אישור לפרסום | ידני (Alex מאשר) | אוטומטי |
+| תזמון Instagram | א׳+ד׳ 21:00 IL | כל 3 ימים 19:00 IL |
+| תזמון TikTok | ב׳+ה׳ 19:00 IL | כל 3 ימים 19:00 IL |
+| אווטאר | מחשבון HeyGen — פרסונת אמן | אווטאר שונה — פרסונת קיוריטור |
