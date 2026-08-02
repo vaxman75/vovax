@@ -10,7 +10,7 @@ function hebrewDate() {
 async function buildDigestData() {
   const [tasksRes, gigsRes, opsRes] = await Promise.all([
     pool.query("SELECT * FROM tasks WHERE section IN ('active','waiting') ORDER BY added_at ASC"),
-    pool.query(`SELECT * FROM gigs WHERE date >= CURRENT_DATE ORDER BY date ASC LIMIT 5`),
+    pool.query(`SELECT * FROM gigs WHERE date::date >= CURRENT_DATE ORDER BY date ASC LIMIT 5`),
     pool.query("SELECT * FROM ops_items WHERE status IN ('active','waiting') ORDER BY created_at DESC"),
   ]);
   return { tasks: tasksRes.rows, gigs: gigsRes.rows, ops: opsRes.rows };
