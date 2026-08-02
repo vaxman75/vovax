@@ -1,7 +1,23 @@
 import { Router } from 'express';
+import pool from '../db/index.js';
 
 const router = Router();
 const EL_BASE = 'https://api.elevenlabs.io/v1';
+
+router.get('/settings', async (_req, res) => {
+  const { rows } = await pool.query("SELECT settings FROM tool_settings WHERE tool = 'elevenlabs'");
+  res.json(rows[0]?.settings || { voice_id: '' });
+});
+
+router.put('/settings', async (req, res) => {
+  const { voice_id = '' } = req.body;
+  await pool.query(
+    `INSERT INTO tool_settings (tool, settings) VALUES ('elevenlabs', $1)
+     ON CONFLICT (tool) DO UPDATE SET settings = $1`,
+    [{ voice_id }]
+  );
+  res.json({ ok: true });
+});
 
 router.post('/tts', async (req, res) => {
   const apiKey = process.env.ELEVENLABS_API_KEY;
@@ -12,10 +28,7 @@ router.post('/tts', async (req, res) => {
 
   const upstream = await fetch(`${EL_BASE}/text-to-speech/${voice_id}`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'xi-api-key': apiKey,
-    },
+    headers: { 'Content-Type': 'application/json', 'xi-api-key': apiKey },
     body: JSON.stringify({ text, model_id, voice_settings }),
   });
 
@@ -29,13 +42,11 @@ router.post('/tts', async (req, res) => {
   res.send(Buffer.from(buffer));
 });
 
-router.get('/voices', async (req, res) => {
+router.get('/voices', async (_req, res) => {
   const apiKey = process.env.ELEVENLABS_API_KEY;
   if (!apiKey) return res.status(500).json({ error: 'ELEVENLABS_API_KEY not set' });
 
-  const upstream = await fetch(`${EL_BASE}/voices`, {
-    headers: { 'xi-api-key': apiKey },
-  });
+  const upstream = await fetch(`${EL_BASE}/voices`, { headers: { 'xi-api-key': apiKey } });
   const data = await upstream.json();
   res.status(upstream.status).json(data);
 });
