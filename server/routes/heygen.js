@@ -41,9 +41,17 @@ router.get('/voices', async (_req, res) => {
     headers: { 'X-Api-Key': apiKey },
   });
   const data = await upstream.json();
-  const voices = (data.data?.list ?? data.data?.voices ?? []).map(({ voice_id, name, language, gender }) => ({
-    voice_id, name, language, gender,
-  }));
+  const voices = (data.data?.list ?? data.data?.voices ?? []).map(
+    ({ voice_id, name, language, gender, preview_audio, support_pause, emotion_support }) => ({
+      voice_id,
+      name: name || null,
+      language: language || null,
+      gender: gender || null,
+      preview_audio: preview_audio || null,
+      support_pause: support_pause ?? false,
+      emotion_support: emotion_support ?? false,
+    })
+  );
   res.status(upstream.status).json({ voices });
 });
 
