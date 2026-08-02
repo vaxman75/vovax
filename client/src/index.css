@@ -1,0 +1,18 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: #0A0A0C; color: #F2F1ED; font-family: 'Inter', system-ui, sans-serif; }
+
+@keyframes pulseMove {
+  0% { stroke-dashoffset: 240; }
+  100% { stroke-dashoffset: 0; }
+}
+.pulse-line {
+  stroke-dasharray: 6 4;
+  animation: pulseMove 3s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .pulse-line { animation: none; }
+}
