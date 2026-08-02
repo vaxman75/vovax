@@ -1,7 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Settings, Play, RefreshCw } from 'lucide-react';
 
-const DEFAULT_PROMPT = 'Heavy melodic techno, minimal power grooves, cinematic tension, dark atmospheric pads, driving bassline';
+const DEFAULT_PROMPT =
+  'Heavy melodic techno, 124 BPM, G minor, rolling hypnotic bassline, dark atmospheric pads, driving four-on-the-floor kick, cinematic tension building toward an emotional breakdown, big reverb space like a treated studio, professional club-ready mix';
+
+const PROMPT_TIPS = [
+  { label: 'BPM', tip: 'ציין מספר ספציפי: 122–128 BPM' },
+  { label: 'סולם', tip: 'סולם מינורי מדויק: G minor / A minor / F minor' },
+  { label: 'טקסטורה', tip: 'rolling bassline · dark pads · four-on-the-floor kick · big reverb' },
+  { label: 'גימור', tip: 'professional club-ready mix / radio-ready master feel' },
+];
 
 function uid() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -129,8 +137,22 @@ export default function AceStep() {
         </div>
       )}
 
-      <label style={{ color: '#8B8A85' }} className="text-xs block mb-1">פרומפט (סגנון/מצב רוח/כלים)</label>
-      <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} dir="ltr" rows={3} style={inputStyle} className="w-full rounded px-3 py-2 text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-cyan-400" />
+      <div style={{ background: '#0F0F12', border: '1px solid #1E1E22' }} className="rounded p-3 mb-4">
+        <div style={{ color: '#8B8A85', fontFamily: "'Space Grotesk', sans-serif", letterSpacing: '0.1em' }} className="text-xs uppercase mb-2">
+          סטנדרט מלאכה — Tale Of Us · Anyma · ARTBAT · Stephan Bodzin
+        </div>
+        <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+          {PROMPT_TIPS.map(({ label, tip }) => (
+            <div key={label} className="flex gap-2 text-xs">
+              <span style={{ color: '#46C7FF', minWidth: 48 }}>{label}</span>
+              <span style={{ color: '#8B8A85' }}>{tip}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <label style={{ color: '#8B8A85' }} className="text-xs block mb-1">פרומפט (סגנון / BPM / סולם / טקסטורה / גימור)</label>
+      <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} dir="ltr" rows={4} style={inputStyle} className="w-full rounded px-3 py-2 text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-cyan-400" />
 
       <label style={{ color: '#8B8A85' }} className="text-xs block mb-1">מילים (אופציונלי — [verse] [chorus] [bridge], ריק = instrumental)</label>
       <textarea value={lyrics} onChange={(e) => setLyrics(e.target.value)} dir="ltr" rows={3} style={inputStyle} className="w-full rounded px-3 py-2 text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-cyan-400" />
