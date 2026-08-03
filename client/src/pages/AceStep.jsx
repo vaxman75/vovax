@@ -92,13 +92,31 @@ export default function AceStep() {
     try { return JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]'); } catch { return []; }
   });
   const pollRef = useRef(null);
+  const [qaStatus, setQaStatus] = useState('idle'); // 'idle'|'loading'|'done'|'error'
+  const [qaResult, setQaResult] = useState(null);
 
   const saveHistory = (next) => {
     setHistory(next);
     try { localStorage.setItem(HISTORY_KEY, JSON.stringify(next.slice(0, 20))); } catch {}
   };
 
-  const pollStatus = (requestId) => {
+  const runQA = async (urls, promptText, brief) => {
+    setQaStatus('loading');
+    try {
+      const r = await fetch('/api/acestep/qa', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: promptText, brief, urls }),
+      });
+      const data = await r.json();
+      setQaResult(data);
+      setQaStatus('done');
+    } catch {
+      setQaStatus('error');
+    }
+  };
+
+  const pollStatus = (requestId, brief) => {
     let attempts = 0;
     setStatus('polling');
     pollRef.current = setInterval(async () => {
@@ -113,6 +131,7 @@ export default function AceStep() {
           setResults(urls);
           setStatus('done');
           saveHistory([{ id: uid(), urls, prompt: prompt.slice(0, 80), date: new Date().toISOString() }, ...history]);
+          runQA(urls, prompt, brief);
         } else if (data.status === 'FAILED' || data.status === 'ERROR') {
           clearInterval(pollRef.current);
           setStatus('error');
@@ -132,13 +151,14 @@ export default function AceStep() {
 
   const generate = async () => {
     setStatus('submitting'); setErrorMsg(null); setResults([]); setAttempt(0);
+    setQaStatus('idle'); setQaResult(null);
     try {
       const body = { model, prompt, lyrics, duration: Number(duration) || 30, batch_size: Number(batchSize) || 1 };
       const r = await fetch('/api/acestep/generate', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
       });
       const data = await r.json();
-      if (data.request_id) pollStatus(data.request_id);
+      if (data.request_id) pollStatus(data.request_id, { purpose, mood, reference, context });
       else { setStatus('error'); setErrorMsg(data.message || data.error || 'לא התקבל request_id'); }
     } catch {
       setStatus('error'); setErrorMsg('הבקשה לשרת נכשלה');
@@ -286,6 +306,63 @@ export default function AceStep() {
       {errorMsg && (
         <div style={{ background: '#131316', border: '1px solid #FF5A64', color: '#FF5A64' }} className="rounded p-3 text-sm mb-4">
           {errorMsg}
+        </div>
+      )}
+
+      {/* ── טליה QA verdict ── */}
+      {status === 'done' && qaStatus !== 'idle' && (
+        <div style={{
+          background: '#0D0D10',
+          border: `1px solid ${
+            qaStatus !== 'done'                          ? '#232326' :
+            qaResult?.verdict === 'APPROVED'             ? '#166534' :
+            qaResult?.verdict === 'REJECTED'             ? '#991B1B' : '#92400E'
+          }`,
+        }} className="rounded p-4 mb-4">
+          <div style={{ fontFamily: "'Space Grotesk', sans-serif", letterSpacing: '0.1em' }} className="text-xs uppercase mb-2 flex items-center gap-2">
+            <span style={{ color: '#8B8A85' }}>טליה — QA</span>
+            {qaStatus === 'loading' && <RefreshCw size={12} className="animate-spin" style={{ color: '#8B8A85' }} />}
+            {qaStatus === 'done' && qaResult?.verdict && (
+              <span style={{
+                color: qaResult.verdict === 'APPROVED' ? '#22C55E' : qaResult.verdict === 'REJECTED' ? '#EF4444' : '#F59E0B',
+                fontWeight: 700,
+              }}>
+                {qaResult.verdict === 'APPROVED' ? '✓ אושר' : qaResult.verdict === 'REJECTED' ? '✗ נדחה' : '⚠ דורש תיקון'}
+              </span>
+            )}
+            {qaStatus === 'error' && <span style={{ color: '#EF4444' }}>שגיאת QA</span>}
+          </div>
+
+          {qaStatus === 'loading' && (
+            <p style={{ color: '#8B8A85' }} className="text-xs">טליה בודקת את הפלט...</p>
+          )}
+
+          {qaStatus === 'done' && qaResult && (
+            <>
+              <p style={{ color: '#F2F1ED' }} className="text-sm mb-3">{qaResult.summary}</p>
+              <div className="space-y-1 mb-1">
+                {Object.entries(qaResult.criteria || {}).map(([key, val]) => (
+                  <div key={key} className="flex items-start gap-2 text-xs">
+                    <span style={{
+                      color: val.status === 'PASS' ? '#22C55E' : val.status === 'FAIL' ? '#EF4444' : val.status === 'LISTEN_REQUIRED' ? '#46C7FF' : '#F59E0B',
+                      minWidth: 14,
+                      flexShrink: 0,
+                    }}>
+                      {val.status === 'PASS' ? '✓' : val.status === 'FAIL' ? '✗' : val.status === 'LISTEN_REQUIRED' ? '👂' : '⚠'}
+                    </span>
+                    <span style={{ color: '#8B8A85' }}>
+                      <strong style={{ color: '#F2F1ED' }}>{key.replace(/_/g, ' ')}</strong> — {val.note}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              {qaResult.fix_if_rejected && (
+                <div style={{ background: '#131316', border: '1px solid #232326', color: '#F59E0B' }} className="rounded p-2 mt-3 text-xs">
+                  תיקון מוצע: {qaResult.fix_if_rejected}
+                </div>
+              )}
+            </>
+          )}
         </div>
       )}
 
