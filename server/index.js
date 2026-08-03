@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { runMigrations } from './db/migrate.js';
 import { startCron } from './cron.js';
-import { buildDigestHtml } from './digest.js';
+import { buildDigestHtml, buildWeeklyDigestHtml } from './digest.js';
 
 import tasksRouter from './routes/tasks.js';
 import meetingsRouter from './routes/meetings.js';
@@ -33,6 +33,17 @@ app.get('/health', (_req, res) => res.json({ ok: true }));
 app.get('/api/digest/preview', async (_req, res) => {
   try {
     const html = await buildDigestHtml();
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(html);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Preview weekly brief HTML in browser (no email sent)
+app.get('/api/digest/preview-weekly', async (_req, res) => {
+  try {
+    const html = await buildWeeklyDigestHtml();
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.send(html);
   } catch (err) {
