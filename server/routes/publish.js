@@ -321,14 +321,14 @@ router.post('/vovax/:id/approve', async (req, res) => {
   res.json({ ok: true, item: rows[0] });
 });
 
-// App: reject a pending item
+// App: reject or un-approve an item (works on pending OR approved — not yet published)
 router.post('/vovax/:id/reject', async (req, res) => {
   const { rows } = await pool.query(
     `UPDATE publish_queue SET status='rejected', decided_at=$1, notes=$2
-     WHERE id=$3 AND channel='vovax' AND status='pending' RETURNING *`,
+     WHERE id=$3 AND channel='vovax' AND status IN ('pending','approved') RETURNING *`,
     [Date.now(), req.body.notes ?? null, req.params.id]
   );
-  if (!rows[0]) return res.status(404).json({ error: 'not found or not pending' });
+  if (!rows[0]) return res.status(404).json({ error: 'not found or already published' });
   res.json({ ok: true, item: rows[0] });
 });
 
