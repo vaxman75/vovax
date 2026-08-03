@@ -336,6 +336,33 @@ Respond ONLY with this JSON (no markdown, no explanation):
 
 // ─── VOVAX endpoints ──────────────────────────────────────────────────────────
 
+async function sendPendingNotification() {
+  const apiKey    = process.env.RESEND_API_KEY;
+  const recipient = process.env.DIGEST_RECIPIENT_EMAIL;
+  if (!apiKey || !recipient) return;
+  const { rows } = await pool.query(
+    `SELECT COUNT(*)::int AS cnt FROM publish_queue WHERE channel='vovax' AND status='pending'`
+  );
+  const cnt = rows[0]?.cnt ?? 1;
+  const { Resend } = await import('resend');
+  const resend = new Resend(apiKey);
+  const from = process.env.DIGEST_FROM_EMAIL || 'VOVAX Digest <onboarding@resend.dev>';
+  const appUrl = process.env.APP_URL || 'https://vovax-app-production.up.railway.app';
+  await resend.emails.send({
+    from,
+    to: [recipient],
+    subject: `VOVAX — ${cnt === 1 ? 'טיוטה חדשה מחכה' : `${cnt} טיוטות מחכות`} לאישורך`,
+    html: `<div dir="rtl" style="font-family:sans-serif;background:#0A0A0C;color:#F2F1ED;padding:32px;max-width:480px">
+      <p style="color:#8B8A85;font-size:11px;letter-spacing:.15em;margin:0 0 12px">VOVAX · COMMAND CENTER</p>
+      <h2 style="margin:0 0 16px;font-size:20px">${cnt === 1 ? 'טיוטה חדשה' : `${cnt} טיוטות`} ממתינ${cnt === 1 ? 'ת' : 'ות'} לאישורך</h2>
+      <p style="color:#8B8A85;margin:0 0 24px">QA רץ אוטומטית. לחץ לסקירה ואישור:</p>
+      <a href="${appUrl}/admin" style="background:#46C7FF;color:#0A0A0C;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:700;display:inline-block">
+        פתח Command Center →
+      </a>
+    </div>`,
+  });
+}
+
 // Zapier calls this on schedule → creates pending item, waits for manual approval
 router.post('/vovax/generate', async (req, res) => {
   try {
@@ -371,6 +398,12 @@ router.post('/vovax/generate', async (req, res) => {
       }
     }
 
+    // Count pending before insert to know if this is first pending item
+    const { rows: pbRows } = await pool.query(
+      `SELECT COUNT(*)::int AS cnt FROM publish_queue WHERE channel='vovax' AND status='pending'`
+    );
+    const pendingBefore = pbRows[0]?.cnt ?? 0;
+
     const item = {
       id: uid(),
       channel: 'vovax',
@@ -393,6 +426,11 @@ router.post('/vovax/generate', async (req, res) => {
 
     // Auto-QA (non-blocking — VOVAX stays pending after QA; human must still approve)
     runQaReview(item).catch((e) => console.error('QA auto-review error (vovax):', e.message));
+
+    // Notify when first pending item arrives (0 → 1+)
+    if (pendingBefore === 0) {
+      sendPendingNotification().catch(() => {});
+    }
 
     res.json({ ok: true, item, avatar_ids_to_avoid: usedAvatarIds });
   } catch (err) {

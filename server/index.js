@@ -18,6 +18,8 @@ import elevenlabsRouter from './routes/elevenlabs.js';
 import publishRouter from './routes/publish.js';
 import soundcloudRouter from './routes/soundcloud.js';
 import tracksRouter from './routes/tracks.js';
+import adminRouter from './routes/admin.js';
+import { requireAuth } from './middleware/auth.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -74,6 +76,14 @@ app.post('/api/digest/send-test', async (_req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// Admin routes (login open, all others auth-guarded inside router)
+app.use('/api/admin', adminRouter);
+
+// Protect human-only publish actions — Zapier endpoints remain open
+app.post('/api/publish/vovax/:id/approve',       requireAuth, (req, res, next) => next());
+app.post('/api/publish/vovax/:id/reject',        requireAuth, (req, res, next) => next());
+app.post('/api/publish/:id/qa-review',           requireAuth, (req, res, next) => next());
 
 // API routes
 app.use('/api/tasks', tasksRouter);
