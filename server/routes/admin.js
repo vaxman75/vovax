@@ -66,14 +66,14 @@ const ALL_EMPLOYEES = [
   { id: 'noam',   name: 'נועם',  role: 'Permissions',         dept: 'engineering',  manager: 'ariel' },
   { id: 'ran',    name: 'רן',    role: 'Implementation',      dept: 'engineering',  manager: 'ariel' },
   { id: 'shaked', name: 'שקד',   role: 'Hebrew & RTL',        dept: 'engineering',  manager: 'ariel' },
-  { id: 'roei',   name: 'רועי',  role: 'Skills',              dept: 'engineering',  manager: 'ariel' },
+  { id: 'roei',   name: 'רועי',  role: 'Skills',              dept: 'engineering',  manager: 'ariel',  skillFile: 'roei-skills.md' },
   // Cybersecurity
   { id: 'adam',   name: 'אדם',   role: 'Cybersecurity',       dept: 'cyber',        manager: null,    skillFile: 'adam-cyber.md' },
   // Finance
   { id: 'neta',   name: 'נטע',   role: 'Finance',             dept: 'finance',      manager: null },
   // Personal Core
   { id: 'eidan',  name: 'עידן',  role: 'מנהל ליבה אישית',    dept: 'personal',     manager: null },
-  { id: 'ron',    name: 'רון',   role: 'Briefing',            dept: 'personal',     manager: 'eidan' },
+  { id: 'ron',    name: 'רון',   role: 'Briefing',            dept: 'personal',     manager: 'eidan',  skillFile: 'ron-briefing.md' },
   { id: 'noa',    name: 'נועה',  role: 'Tasks',               dept: 'personal',     manager: 'eidan' },
   { id: 'maya',   name: 'מאיה',  role: 'Email',               dept: 'personal',     manager: 'eidan' },
   { id: 'tomer',  name: 'תומר',  role: 'Calendar',            dept: 'personal',     manager: 'eidan' },
@@ -82,7 +82,7 @@ const ALL_EMPLOYEES = [
   // Recruiting & Talent
   { id: 'einav',  name: 'עינב',  role: 'ראש גיוס וכישרונות', dept: 'recruiting',   manager: null, skillFile: 'einav-recruiting.md' },
   // Vovax Core
-  { id: 'alon',   name: 'אלון',  role: 'Board Secretary',     dept: 'core',         manager: null },
+  { id: 'alon',   name: 'אלון',  role: 'Board Secretary',     dept: 'core',         manager: null,     skillFile: 'alon-board.md' },
   { id: 'aviv',   name: 'אביב',  role: 'Ops Coordinator',     dept: 'core',         manager: null },
 ];
 
