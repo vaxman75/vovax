@@ -35,55 +35,55 @@ const ALL_EMPLOYEES = [
   // Automated Publishing
   { id: 'asaf',   name: 'אסף',   role: 'מנהל פרסום אוטומטי', dept: 'publishing',   manager: null,    skillFile: 'asaf-manager.md' },
   { id: 'tal',    name: 'טל',    role: 'כתיבת תסריט',        dept: 'publishing',   manager: 'asaf',  skillFile: 'tal-script.md' },
-  { id: 'adi',    name: 'עדי',   role: 'HeyGen',              dept: 'publishing',   manager: 'asaf' },
-  { id: 'yaara',  name: 'יערה',  role: 'Buffer',              dept: 'publishing',   manager: 'asaf' },
-  { id: 'bar',    name: 'בר',    role: 'Publisher',           dept: 'publishing',   manager: 'asaf' },
+  { id: 'adi',    name: 'עדי',   role: 'HeyGen',              dept: 'publishing',   manager: 'asaf',  skillFile: 'adi-video.md' },
+  { id: 'yaara',  name: 'יערה',  role: 'Buffer',              dept: 'publishing',   manager: 'asaf',  skillFile: 'yeara-scheduler.md' },
+  { id: 'bar',    name: 'בר',    role: 'Publisher',           dept: 'publishing',   manager: 'asaf',  skillFile: 'bar-publisher.md' },
   { id: 'nadav',  name: 'נדב',   role: 'Monitor',             dept: 'publishing',   manager: 'asaf',  skillFile: 'nadav-monitor.md' },
   // Brand & Voice
   { id: 'shira',  name: 'שירה',  role: 'מנהלת מותג וקול',    dept: 'brand',        manager: null,    skillFile: 'shira-manager.md' },
-  { id: 'gal',    name: 'גל',    role: 'Voice Guide',         dept: 'brand',        manager: 'shira' },
+  { id: 'gal',    name: 'גל',    role: 'Voice Guide',         dept: 'brand',        manager: 'shira', skillFile: 'gal-voiceguide.md' },
   { id: 'yuval',  name: 'יובל',  role: 'Content Check / QA',  dept: 'brand',        manager: 'shira', skillFile: 'yuval-contentcheck.md' },
   // Distribution
-  { id: 'uri',    name: 'אורי',  role: 'מנהל הפצה',          dept: 'distribution', manager: null },
-  { id: 'lior',   name: 'ליאור', role: 'Spotify',             dept: 'distribution', manager: 'uri' },
-  { id: 'omer',   name: 'עומר',  role: 'SoundCloud',          dept: 'distribution', manager: 'uri' },
-  { id: 'rotem',  name: 'רותם',  role: 'YouTube',             dept: 'distribution', manager: 'uri' },
+  { id: 'uri',    name: 'אורי',  role: 'מנהל הפצה',          dept: 'distribution', manager: null,    skillFile: 'ori-distribution.md' },
+  { id: 'lior',   name: 'ליאור', role: 'Spotify',             dept: 'distribution', manager: 'uri',   skillFile: 'lior-spotify.md' },
+  { id: 'omer',   name: 'עומר',  role: 'SoundCloud',          dept: 'distribution', manager: 'uri',   skillFile: 'omer-soundcloud.md' },
+  { id: 'rotem',  name: 'רותם',  role: 'YouTube',             dept: 'distribution', manager: 'uri',   skillFile: 'rotem-youtube.md' },
   // Production
-  { id: 'omri',   name: 'עמרי',  role: 'מנהל הפקה',          dept: 'production',   manager: null },
-  { id: 'noy',    name: 'נוי',   role: 'Edit & Mix',          dept: 'production',   manager: 'omri' },
-  { id: 'ziv',    name: 'זיו',   role: 'Mastering',           dept: 'production',   manager: 'omri' },
+  { id: 'omri',   name: 'עמרי',  role: 'מנהל הפקה',          dept: 'production',   manager: null,    skillFile: 'omri-production.md' },
+  { id: 'noy',    name: 'נוי',   role: 'Edit & Mix',          dept: 'production',   manager: 'omri',  skillFile: 'noy-editmix.md' },
+  { id: 'ziv',    name: 'זיב',   role: 'Mastering',           dept: 'production',   manager: 'omri',  skillFile: 'ziv-mastering.md' },
   // Sales & Labels
-  { id: 'raz',    name: 'רז',    role: 'מנהל מכירות ולייבלים', dept: 'sales',       manager: null },
-  { id: 'eitan',  name: 'איתן',  role: 'Labels Outreach',     dept: 'sales',        manager: 'raz' },
-  { id: 'karen',  name: 'קרן',   role: 'Booking Quotes',      dept: 'sales',        manager: 'raz' },
+  { id: 'raz',    name: 'רז',    role: 'מנהל מכירות ולייבלים', dept: 'sales',      manager: null,    skillFile: 'raz-sales.md' },
+  { id: 'eitan',  name: 'איתן',  role: 'Labels Outreach',     dept: 'sales',        manager: 'raz',   skillFile: 'eitan-labels.md' },
+  { id: 'karen',  name: 'קרן',   role: 'Booking Quotes',      dept: 'sales',        manager: 'raz',   skillFile: 'keren-booking.md' },
   // AVOVAX Label
-  { id: 'roni',   name: 'רוני',  role: 'מנהלת AVOVAX Label', dept: 'avovax',       manager: null },
-  { id: 'shani',  name: 'שני',   role: 'GURI Project',        dept: 'avovax',       manager: 'roni' },
+  { id: 'roni',   name: 'רוני',  role: 'מנהלת AVOVAX Label', dept: 'avovax',       manager: null,    skillFile: 'roni-label.md' },
+  { id: 'shani',  name: 'שני',   role: 'GURI Project',        dept: 'avovax',       manager: 'roni',  skillFile: 'shani-guriproject.md' },
   // Website
-  { id: 'dana',   name: 'דנה',   role: 'vovaxmusic.com',      dept: 'website',      manager: null },
+  { id: 'dana',   name: 'דנה',   role: 'vovaxmusic.com',      dept: 'website',      manager: null,    skillFile: 'dana-website.md' },
   // Engineering
-  { id: 'ariel',  name: 'אריאל', role: 'מנהל הנדסה',         dept: 'engineering',  manager: null, skillFile: 'ariel-engineering.md' },
-  { id: 'noam',   name: 'נועם',  role: 'Permissions',         dept: 'engineering',  manager: 'ariel' },
-  { id: 'ran',    name: 'רן',    role: 'Implementation',      dept: 'engineering',  manager: 'ariel' },
-  { id: 'shaked', name: 'שקד',   role: 'Hebrew & RTL',        dept: 'engineering',  manager: 'ariel' },
+  { id: 'ariel',  name: 'אריאל', role: 'מנהל הנדסה',         dept: 'engineering',  manager: null,    skillFile: 'ariel-engineering.md' },
+  { id: 'noam',   name: 'נועם',  role: 'Permissions',         dept: 'engineering',  manager: 'ariel', skillFile: 'noam-permissions.md' },
+  { id: 'ran',    name: 'רן',    role: 'Implementation',      dept: 'engineering',  manager: 'ariel', skillFile: 'ran-implementation.md' },
+  { id: 'shaked', name: 'שקד',   role: 'Hebrew & RTL',        dept: 'engineering',  manager: 'ariel', skillFile: 'shaked-hebrew.md' },
   { id: 'roei',   name: 'רועי',  role: 'Skills',              dept: 'engineering',  manager: 'ariel',  skillFile: 'roei-skills.md' },
   // Cybersecurity
   { id: 'adam',   name: 'אדם',   role: 'Cybersecurity',       dept: 'cyber',        manager: null,    skillFile: 'adam-cyber.md' },
   // Finance
-  { id: 'neta',   name: 'נטע',   role: 'Finance',             dept: 'finance',      manager: null },
+  { id: 'neta',   name: 'נטע',   role: 'Finance',             dept: 'finance',      manager: null,    skillFile: 'neta-finance.md' },
   // Personal Core
-  { id: 'eidan',  name: 'עידן',  role: 'מנהל ליבה אישית',    dept: 'personal',     manager: null },
-  { id: 'ron',    name: 'רון',   role: 'Briefing',            dept: 'personal',     manager: 'eidan',  skillFile: 'ron-briefing.md' },
-  { id: 'noa',    name: 'נועה',  role: 'Tasks',               dept: 'personal',     manager: 'eidan' },
-  { id: 'maya',   name: 'מאיה',  role: 'Email',               dept: 'personal',     manager: 'eidan' },
-  { id: 'tomer',  name: 'תומר',  role: 'Calendar',            dept: 'personal',     manager: 'eidan' },
-  { id: 'matan',  name: 'מתן',   role: 'Performances',        dept: 'personal',     manager: 'eidan' },
-  { id: 'hadar',  name: 'הדר',   role: 'Fanmail',             dept: 'personal',     manager: 'eidan' },
+  { id: 'eidan',  name: 'עידן',  role: 'מנהל ליבה אישית',    dept: 'personal',     manager: null,    skillFile: 'idan-manager.md' },
+  { id: 'ron',    name: 'רון',   role: 'Briefing',            dept: 'personal',     manager: 'eidan', skillFile: 'ron-briefing.md' },
+  { id: 'noa',    name: 'נועה',  role: 'Tasks',               dept: 'personal',     manager: 'eidan', skillFile: 'noa-tasks.md' },
+  { id: 'maya',   name: 'מאיה',  role: 'Email',               dept: 'personal',     manager: 'eidan', skillFile: 'maya-email.md' },
+  { id: 'tomer',  name: 'תומר',  role: 'Calendar',            dept: 'personal',     manager: 'eidan', skillFile: 'tomer-calendar.md' },
+  { id: 'matan',  name: 'מתן',   role: 'Performances',        dept: 'personal',     manager: 'eidan', skillFile: 'matan-assistant.md' },
+  { id: 'hadar',  name: 'הדר',   role: 'Fanmail',             dept: 'personal',     manager: 'eidan', skillFile: 'hadar-fanmail.md' },
   // Recruiting & Talent
   { id: 'einav',  name: 'עינב',  role: 'ראש גיוס וכישרונות', dept: 'recruiting',   manager: null, skillFile: 'einav-recruiting.md' },
   // Vovax Core
   { id: 'alon',   name: 'אלון',  role: 'Board Secretary',     dept: 'core',         manager: null,     skillFile: 'alon-board.md' },
-  { id: 'aviv',   name: 'אביב',  role: 'Ops Coordinator',     dept: 'core',         manager: null },
+  { id: 'aviv',   name: 'אביב',  role: 'Ops Coordinator',     dept: 'core',         manager: null,    skillFile: 'aviv-opscoord.md' },
 ];
 
 const DEPT_META = {
