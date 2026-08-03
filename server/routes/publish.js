@@ -264,6 +264,30 @@ async function runQaReview(item) {
     `UPDATE publish_queue SET qa_status=$1, qa_reason=$2, qa_issues=$3, qa_at=$4, qa_employee=$5 WHERE id=$6`,
     [qaStatus, qa.reason ?? null, qa.issues ?? [], Date.now(), 'yuval-contentcheck', item.id]
   );
+
+  // Auto-reject + regenerate on QA fail (VOVAX only, max 3 attempts to prevent loops)
+  if (qaStatus === 'fail' && item.channel === 'vovax') {
+    const attempts = item.rejection_count ?? 0;
+    if (attempts < 3) {
+      const reason = `QA auto-reject (attempt ${attempts + 1}/3): ${qa.reason ?? 'failed quality check'}`;
+      const updated = await pool.query(
+        `UPDATE publish_queue SET status='rejected', decided_at=$1, notes=$2
+         WHERE id=$3 AND status IN ('pending','rendering') RETURNING id`,
+        [Date.now(), reason, item.id]
+      );
+      if (updated.rows.length > 0) {
+        createVovaxItem({
+          platform:        item.platform ?? 'instagram',
+          topic:           item.topic,
+          forceTrackId:    item.track_id ?? null,
+          rejCount:        attempts + 1,
+          regeneratedFrom: item.id,
+        }).catch(e => console.error('QA auto-regen failed:', e.message));
+      }
+    }
+    // If attempts >= 3: leave as pending so user can review manually
+  }
+
   return { ok: true, qa_status: qaStatus, qa_reason: qa.reason ?? null, qa_issues: qa.issues ?? [], employee: 'yuval-contentcheck' };
 }
 
