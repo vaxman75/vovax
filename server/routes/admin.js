@@ -79,6 +79,8 @@ const ALL_EMPLOYEES = [
   { id: 'tomer',  name: 'תומר',  role: 'Calendar',            dept: 'personal',     manager: 'eidan' },
   { id: 'matan',  name: 'מתן',   role: 'Performances',        dept: 'personal',     manager: 'eidan' },
   { id: 'hadar',  name: 'הדר',   role: 'Fanmail',             dept: 'personal',     manager: 'eidan' },
+  // Recruiting & Talent
+  { id: 'einav',  name: 'עינב',  role: 'ראש גיוס וכישרונות', dept: 'recruiting',   manager: null, skillFile: 'einav-recruiting.md' },
   // Vovax Core
   { id: 'alon',   name: 'אלון',  role: 'Board Secretary',     dept: 'core',         manager: null },
   { id: 'aviv',   name: 'אביב',  role: 'Ops Coordinator',     dept: 'core',         manager: null },
@@ -98,6 +100,7 @@ const DEPT_META = {
   cyber:        { label: 'סייבר',             icon: '🔒', hasData: false },
   finance:      { label: 'כספים',             icon: '💰', hasData: false },
   personal:     { label: 'ליבה אישית',        icon: '👤', hasData: false },
+  recruiting:   { label: 'גיוס וכישרונות',    icon: '🤝', hasData: false },
   core:         { label: 'VOVAX Core',         icon: '⭐', hasData: false },
 };
 
