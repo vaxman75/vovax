@@ -57,6 +57,39 @@ function scoreVoice(v) {
   return score;
 }
 
+async function fetchElevenLabsVoice(gender) {
+  const apiKey = process.env.ELEVENLABS_API_KEY;
+  if (!apiKey || apiKey === 'placeholder') return null;
+  try {
+    const r = await fetch('https://api.elevenlabs.io/v1/voices', { headers: { 'xi-api-key': apiKey } });
+    if (!r.ok) return null;
+    const data = await r.json();
+    const scoreEl = v => (v.labels?.use_case === 'narration' ? 2 : 0) + (v.preview_url ? 1 : 0);
+    const candidates = (data.voices ?? [])
+      .filter(v => v.voice_id && (!gender || (v.labels?.gender ?? '').toLowerCase() === gender.toLowerCase()))
+      .sort((a, b) => scoreEl(b) - scoreEl(a));
+    if (!candidates[0]) return null;
+    return { voice_id: candidates[0].voice_id, name: candidates[0].name };
+  } catch { return null; }
+}
+
+// Automated regression check — runs on every generation; throws to abort on mismatch
+function assertGenderPairing({ avatarId, avatarGender, voiceGender, usedAvatarIds = [], context = '' }) {
+  const issues = [];
+  if (!avatarGender)
+    issues.push(`avatar_gender is null for ${avatarId}`);
+  if (avatarGender && voiceGender && avatarGender !== voiceGender)
+    issues.push(`GENDER_MISMATCH avatar=${avatarGender} voice=${voiceGender}`);
+  if (avatarId && usedAvatarIds.includes(avatarId))
+    issues.push(`NO_ROTATION avatarId=${avatarId} appeared in last ${usedAvatarIds.length} generations`);
+  const tag = `[gender-parity ${context}]`;
+  if (issues.length > 0) {
+    console.error(`${tag} FAIL — ${issues.join(' | ')}`);
+    throw new Error(`${tag} FAIL — ${issues.join(' | ')}`);
+  }
+  console.log(`${tag} PASS — avatar=${avatarGender} voice=${voiceGender} fresh=${!usedAvatarIds.includes(avatarId)}`);
+}
+
 let _heygenCache = null;
 let _heygenCacheAt = 0;
 const HEYGEN_CACHE_TTL = 10 * 60 * 1000;
@@ -79,43 +112,73 @@ async function fetchHeyGenData() {
   return _heygenCache;
 }
 
-async function getTopPicks(persona) {
+async function getTopPicks(persona, usedAvatarIds = []) {
   const { avatars, voices } = await fetchHeyGenData();
-  const topAvatar = avatars
+
+  // Score all persona-fit avatars
+  const scored = avatars
     .map(a => ({ ...a, _score: scoreAvatar(a, persona) }))
     .filter(a => a._score > 0)
-    .sort((a, b) => b._score - a._score)[0] ?? null;
+    .sort((a, b) => b._score - a._score);
 
-  // Constrain voice candidates to same gender as avatar — no fallback to mismatched pairing
+  // Rotation: prefer avatars not used recently; cycle through full set if all have been used
+  const fresh = scored.filter(a => !usedAvatarIds.includes(a.avatar_id));
+  const pool  = fresh.length > 0 ? fresh : scored;
+
+  // Pick randomly among the top-scoring tier — real variety, never always index 0
+  const topScore = pool[0]?._score ?? 0;
+  const topTier  = pool.filter(a => a._score === topScore);
+  const topAvatar = topTier[Math.floor(Math.random() * topTier.length)] ?? null;
+
+  // Gender is mandatory — pairing is refused if avatar has no gender metadata
   const avatarGender = topAvatar?.gender ? topAvatar.gender.toLowerCase() : null;
-  const voiceCandidates = avatarGender
-    ? voices.filter(v => v.gender && v.gender.toLowerCase() === avatarGender)
-    : voices;
+  if (!avatarGender) throw new Error(`getTopPicks(${persona}): avatar "${topAvatar?.name ?? 'unknown'}" has no gender metadata — pairing refused`);
+
+  // HeyGen voice must match avatar gender exactly — no silent fallback
+  const voiceCandidates = voices.filter(v => v.gender && v.gender.toLowerCase() === avatarGender);
+  if (voiceCandidates.length === 0) throw new Error(`getTopPicks(${persona}): no ${avatarGender} HeyGen voices available`);
 
   const topVoice = voiceCandidates
     .map(v => ({ ...v, _score: scoreVoice(v) }))
     .filter(v => v._score > 0)
-    .sort((a, b) => b._score - a._score)[0] ?? null;
+    .sort((a, b) => b._score - a._score)[0] ?? voiceCandidates[0];
 
-  console.log(`getTopPicks(${persona}): avatar="${topAvatar?.name}" gender=${avatarGender} → voice="${topVoice?.name}" gender=${topVoice?.gender ?? 'n/a'} candidates=${voiceCandidates.length}`);
+  // ElevenLabs voice — gender-matched so any Zapier narration path also gets the right voice
+  const elVoice = await fetchElevenLabsVoice(avatarGender);
+
+  console.log(`getTopPicks(${persona}): avatar="${topAvatar?.name}" gender=${avatarGender} heygen="${topVoice?.name}" el="${elVoice?.name ?? 'none'}" fresh=${!usedAvatarIds.includes(topAvatar?.avatar_id)}`);
 
   return {
-    avatar_id:   topAvatar?.avatar_id ?? null,
-    avatar_name: topAvatar?.name      ?? null,
+    avatar_id:     topAvatar?.avatar_id  ?? null,
+    avatar_name:   topAvatar?.name       ?? null,
     avatar_gender: avatarGender,
-    voice_id:    topVoice?.voice_id   ?? null,
-    voice_name:  topVoice?.name       ?? null,
+    voice_id:      topVoice?.voice_id    ?? null,
+    voice_name:    topVoice?.name        ?? null,
+    el_voice_id:   elVoice?.voice_id     ?? null,
+    el_voice_name: elVoice?.name         ?? null,
   };
 }
 
-// Submit a HeyGen video render job — returns {video_id, avatar_id, voice_id} or null
-async function submitHeyGenRender(script, persona) {
+// Submit a HeyGen video render job — returns {video_id, avatar_id, voice_id, el_voice_id, avatar_gender} or null
+async function submitHeyGenRender(script, persona, usedAvatarIds = []) {
   const apiKey = process.env.HEYGEN_API_KEY;
   if (!apiKey || apiKey === 'placeholder') return null;
 
   let picks;
-  try { picks = await getTopPicks(persona); } catch { return null; }
+  try { picks = await getTopPicks(persona, usedAvatarIds); } catch (e) {
+    console.error('submitHeyGenRender: getTopPicks failed:', e.message);
+    return null;
+  }
   if (!picks?.avatar_id || !picks?.voice_id) return null;
+
+  // Automated regression check — every generation must pass before video is submitted
+  assertGenderPairing({
+    avatarId:     picks.avatar_id,
+    avatarGender: picks.avatar_gender,
+    voiceGender:  picks.avatar_gender,  // voice was filtered to match avatar gender in getTopPicks
+    usedAvatarIds,
+    context:      persona,
+  });
 
   const body = {
     video_inputs: [{
@@ -138,7 +201,7 @@ async function submitHeyGenRender(script, persona) {
       console.error('HeyGen submit failed:', data?.error ?? data);
       return null;
     }
-    return { video_id: data.data.video_id, avatar_id: picks.avatar_id, voice_id: picks.voice_id };
+    return { video_id: data.data.video_id, avatar_id: picks.avatar_id, voice_id: picks.voice_id, el_voice_id: picks.el_voice_id, avatar_gender: picks.avatar_gender };
   } catch (e) {
     console.error('HeyGen submit error:', e.message);
     return null;
@@ -380,18 +443,19 @@ async function createVovaxItem({ platform = 'instagram', topic: forceTopic, forc
   }
 
   // Submit HeyGen render — non-blocking failure gracefully falls back to text-only pending
-  const render = await submitHeyGenRender(scriptTemplate, 'vovax').catch(() => null);
+  const render = await submitHeyGenRender(scriptTemplate, 'vovax', usedAvatarIds).catch(() => null);
   const status = render ? 'rendering' : 'pending';
 
   const id  = uid();
   const now = Date.now();
-  const item = { id, channel: 'vovax', platform, topic, script: scriptTemplate, script_hash: scriptHash(scriptTemplate), avatar_id: render?.avatar_id ?? null, heygen_video_id: render?.video_id ?? null, status, created_at: now, track_id: trackId, rejection_count: rejCount, regenerated_from: regeneratedFrom };
+  const item = { id, channel: 'vovax', platform, topic, script: scriptTemplate, script_hash: scriptHash(scriptTemplate), avatar_id: render?.avatar_id ?? null, heygen_video_id: render?.video_id ?? null, avatar_gender: render?.avatar_gender ?? null, heygen_voice_id: render?.voice_id ?? null, el_voice_id: render?.el_voice_id ?? null, status, created_at: now, track_id: trackId, rejection_count: rejCount, regenerated_from: regeneratedFrom };
 
   await pool.query(
-    `INSERT INTO publish_queue (id,channel,platform,topic,script,script_hash,avatar_id,heygen_video_id,status,created_at,track_id,rejection_count,regenerated_from)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+    `INSERT INTO publish_queue (id,channel,platform,topic,script,script_hash,avatar_id,heygen_video_id,avatar_gender,heygen_voice_id,el_voice_id,status,created_at,track_id,rejection_count,regenerated_from)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
     [item.id, item.channel, item.platform, item.topic, item.script, item.script_hash,
-     item.avatar_id, item.heygen_video_id, item.status, item.created_at, item.track_id,
+     item.avatar_id, item.heygen_video_id, item.avatar_gender, item.heygen_voice_id, item.el_voice_id,
+     item.status, item.created_at, item.track_id,
      item.rejection_count, item.regenerated_from]
   );
 
@@ -484,14 +548,19 @@ router.get('/vovax/next-approved', async (req, res) => {
   const item = rows[0] ?? null;
   if (!item) return res.json({ item: null });
 
-  // Include top picks for backwards compat (Zapier may still use them for fallback)
-  try {
-    const picks = await getTopPicks('vovax');
-    item.resolved_avatar_id = item.avatar_id || picks.avatar_id;
-    item.voice_id           = picks.voice_id;
-    item.avatar_name        = picks.avatar_name;
-    item.voice_name         = picks.voice_name;
-  } catch {}
+  // Expose el_voice_id for Zapier's ElevenLabs narration path — always gender-matched to avatar
+  // Items generated before fix 006 won't have el_voice_id stored; fall back to fresh picks for those
+  item.resolved_avatar_id = item.avatar_id;
+  item.voice_id           = item.heygen_voice_id;  // HeyGen voice used in the render
+  if (!item.el_voice_id) {
+    try {
+      const usedIds = await recentAvatarIds('vovax', 5);
+      const picks   = await getTopPicks('vovax', usedIds);
+      item.el_voice_id   = picks.el_voice_id;
+      item.el_voice_name = picks.el_voice_name;
+      item.avatar_name   = picks.avatar_name;
+    } catch {}
+  }
 
   res.json({ item });
 });
@@ -539,8 +608,20 @@ router.get('/signal/brief', async (_req, res) => {
 
     runQaReview({ id, channel: 'signal', topic, script: finalScript }).catch(e => console.error('QA error (signal):', e.message));
 
-    let picks = { avatar_id: null, avatar_name: null, voice_id: null, voice_name: null };
-    try { picks = await getTopPicks('signal'); } catch {}
+    let picks = { avatar_id: null, avatar_name: null, avatar_gender: null, voice_id: null, voice_name: null, el_voice_id: null, el_voice_name: null };
+    try {
+      picks = await getTopPicks('signal', usedAvatarIds);
+      // Regression check — same gate as VOVAX path
+      if (picks.avatar_id) {
+        assertGenderPairing({
+          avatarId:     picks.avatar_id,
+          avatarGender: picks.avatar_gender,
+          voiceGender:  picks.avatar_gender,
+          usedAvatarIds,
+          context:      'signal',
+        });
+      }
+    } catch (e) { console.error('signal/brief: picks/assertion failed:', e.message); }
 
     res.json({ id, topic, script: finalScript, avatar_ids_to_avoid: usedAvatarIds, track_id: trackId, ...picks });
   } catch (err) {
