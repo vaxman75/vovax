@@ -184,7 +184,7 @@ router.get('/dept/:name', requireAuth, async (req, res) => {
     if (name === 'publishing') {
       const [vovaxRes, signalRes] = await Promise.all([
         pool.query(
-          `SELECT pq.*, t.title AS track_title, t.genre AS track_genre, t.bpm AS track_bpm
+          `SELECT pq.*, t.title AS track_title, t.genre AS track_genre
            FROM publish_queue pq LEFT JOIN tracks t ON pq.track_id = t.id
            WHERE pq.channel='vovax'
            ORDER BY CASE pq.status WHEN 'pending' THEN 0 WHEN 'approved' THEN 1 ELSE 2 END,
@@ -212,14 +212,14 @@ router.get('/dept/:name', requireAuth, async (req, res) => {
 
     if (name === 'distribution') {
       const tracksRes = await pool.query(
-        `SELECT id, title, genre, bpm, created_at FROM tracks ORDER BY created_at DESC LIMIT 30`
+        `SELECT id, title, genre, synced_at FROM tracks ORDER BY synced_at DESC LIMIT 30`
       );
       extra = { tracks: tracksRes.rows };
     }
 
     if (name === 'music') {
       const [tracksRes, pubRes] = await Promise.all([
-        pool.query(`SELECT id, title, genre, bpm, created_at FROM tracks ORDER BY created_at DESC LIMIT 20`),
+        pool.query(`SELECT id, title, genre, synced_at FROM tracks ORDER BY synced_at DESC LIMIT 20`),
         pool.query(
           `SELECT pq.id, pq.topic, pq.script, pq.status, pq.qa_status, pq.created_at,
                   t.title AS track_title

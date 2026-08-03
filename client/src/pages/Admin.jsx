@@ -321,9 +321,14 @@ function PublishingPage({ employees, onAction }) {
   const [acting, setActing]     = useState({});
   const [tab, setTab]           = useState('vovax');
 
+  const [loadErr, setLoadErr] = useState('');
   const load = useCallback(async () => {
-    const r = await fetch(`${API}/api/admin/dept/publishing`, { headers: authHdr() });
-    if (r.ok) setDeptData(await r.json());
+    try {
+      const r = await fetch(`${API}/api/admin/dept/publishing`, { headers: authHdr() });
+      const d = await r.json();
+      if (!r.ok) { setLoadErr(d.error ?? `שגיאת שרת ${r.status}`); return; }
+      setDeptData(d);
+    } catch (e) { setLoadErr(e.message); }
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -368,7 +373,8 @@ function PublishingPage({ employees, onAction }) {
         {tabBtn('signal', 'Signal Detected', signal.filter(i => i.status === 'pending').length)}
       </div>
 
-      {!deptData && <p style={{ color: '#555', fontSize: 13 }}>טוען…</p>}
+      {loadErr && <p style={{ color: '#FF4444', fontSize: 13 }}>שגיאה: {loadErr}</p>}
+      {!deptData && !loadErr && <p style={{ color: '#555', fontSize: 13 }}>טוען…</p>}
 
       {items.map(item => {
         const isPending  = item.status === 'pending';
@@ -387,7 +393,7 @@ function PublishingPage({ employees, onAction }) {
 
             {item.track_title && (
               <p style={{ color: '#8B8A85', fontSize: 12, margin: '0 0 8px' }}>
-                🎵 {item.track_title}{item.track_genre ? ` · ${item.track_genre}` : ''}{item.track_bpm ? ` · ${item.track_bpm} BPM` : ''}
+                🎵 {item.track_title}{item.track_genre ? ` · ${item.track_genre}` : ''}
               </p>
             )}
 
@@ -522,7 +528,7 @@ function DistributionPage({ employees }) {
       {tracks.map(t => (
         <div key={t.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 0', borderBottom: '1px solid #1a1a1d', fontSize: 13 }}>
           <span style={{ color: '#F2F1ED' }}>{t.title}</span>
-          <span style={{ color: '#555', fontSize: 11 }}>{t.genre ?? ''}{t.bpm ? ` · ${t.bpm} BPM` : ''} · {fmtDate(t.created_at)}</span>
+          <span style={{ color: '#555', fontSize: 11 }}>{t.genre ?? ''} · {fmtDate(t.synced_at)}</span>
         </div>
       ))}
     </div>
@@ -563,7 +569,7 @@ function MusicPage({ employees }) {
       {tracks.map(t => (
         <div key={t.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 0', borderBottom: '1px solid #1a1a1d', fontSize: 13 }}>
           <span style={{ color: '#F2F1ED' }}>{t.title}</span>
-          <span style={{ color: '#555', fontSize: 11 }}>{t.genre ?? ''}{t.bpm ? ` · ${t.bpm} BPM` : ''}</span>
+          <span style={{ color: '#555', fontSize: 11 }}>{t.genre ?? ''}</span>
         </div>
       ))}
     </div>
