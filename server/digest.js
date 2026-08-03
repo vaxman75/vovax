@@ -23,13 +23,13 @@ function weekStartMs() {
 }
 
 function fmtTimeMs(ms) {
-  return new Date(ms).toLocaleTimeString('he-IL', {
+  return new Date(Number(ms)).toLocaleTimeString('he-IL', {
     timeZone: 'Asia/Jerusalem', hour: '2-digit', minute: '2-digit',
   });
 }
 
 function fmtDateTimeMs(ms) {
-  return new Date(ms).toLocaleString('he-IL', {
+  return new Date(Number(ms)).toLocaleString('he-IL', {
     timeZone: 'Asia/Jerusalem', day: 'numeric', month: 'numeric',
     hour: '2-digit', minute: '2-digit',
   });
