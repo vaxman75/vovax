@@ -305,10 +305,15 @@ Respond ONLY with this JSON (no markdown, no explanation):
     });
     if (r.ok) {
       const data = await r.json();
-      const text = data.content?.[0]?.text?.trim() ?? '{}';
+      let text = data.content?.[0]?.text?.trim() ?? '{}';
+      // Strip markdown code fences if present
+      text = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
       qa = JSON.parse(text);
+    } else {
+      const errData = await r.json().catch(() => ({}));
+      qa.reason = `API ${r.status}: ${errData?.error?.message ?? r.statusText}`;
     }
-  } catch { /* keep default */ }
+  } catch (e) { qa.reason = e.message ?? 'QA parse error'; }
 
   const qaStatus = qa.approved ? 'pass' : 'fail';
   const now      = Date.now();
