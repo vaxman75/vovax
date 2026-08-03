@@ -97,7 +97,8 @@ Respond with valid JSON only — no markdown, no prose outside the object:
     const raw = await resp.json();
     const text = raw.content?.[0]?.text;
     if (!text) return res.status(502).json({ error: 'Empty response from Claude' });
-    const qa = JSON.parse(text);
+    const stripped = text.replace(/^```(?:json)?\s*/m, '').replace(/\s*```\s*$/m, '').trim();
+    const qa = JSON.parse(stripped);
     res.json(qa);
   } catch (err) {
     res.status(500).json({ error: err.message || 'QA call failed' });
