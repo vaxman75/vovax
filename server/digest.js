@@ -75,14 +75,22 @@ async function fetchRailwayDeploys() {
   const token     = process.env.RAILWAY_API_TOKEN;
   const projectId = process.env.RAILWAY_PROJECT_ID;
   if (!token || !projectId) return null; // section will show "configure" hint
+  const serviceId = process.env.RAILWAY_SERVICE_ID ?? null; // auto-set by Railway
   try {
+    const input = serviceId
+      ? `{projectId:$p, serviceId:$s}`
+      : `{projectId:$p}`;
+    const vars = serviceId
+      ? { p: projectId, s: serviceId }
+      : { p: projectId };
+    const queryStr = serviceId
+      ? `query D($p:String!,$s:String!){deployments(input:{projectId:$p,serviceId:$s}){edges{node{id status createdAt meta{commitMessage}}}}}`
+      : `query D($p:String!){deployments(input:{projectId:$p}){edges{node{id status createdAt meta{commitMessage}}}}}`;
+
     const r = await fetch('https://backboard.railway.app/graphql/v2', {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        query: `query D($p:String!){deployments(input:{projectId:$p}){edges{node{id status createdAt meta{commitMessage}}}}}`,
-        variables: { p: projectId },
-      }),
+      body: JSON.stringify({ query: queryStr, variables: vars }),
     });
     if (!r.ok) return [];
     const data = await r.json();
