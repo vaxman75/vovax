@@ -81,9 +81,31 @@ async function fetchHeyGenData() {
 
 async function getTopPicks(persona) {
   const { avatars, voices } = await fetchHeyGenData();
-  const topAvatar = avatars.map(a => ({ ...a, _score: scoreAvatar(a, persona) })).filter(a => a._score > 0).sort((a, b) => b._score - a._score)[0] ?? null;
-  const topVoice  = voices.map(v => ({ ...v, _score: scoreVoice(v) })).filter(v => v._score > 0).sort((a, b) => b._score - a._score)[0] ?? null;
-  return { avatar_id: topAvatar?.avatar_id ?? null, avatar_name: topAvatar?.name ?? null, voice_id: topVoice?.voice_id ?? null, voice_name: topVoice?.name ?? null };
+  const topAvatar = avatars
+    .map(a => ({ ...a, _score: scoreAvatar(a, persona) }))
+    .filter(a => a._score > 0)
+    .sort((a, b) => b._score - a._score)[0] ?? null;
+
+  // Constrain voice candidates to same gender as avatar — no fallback to mismatched pairing
+  const avatarGender = topAvatar?.gender ? topAvatar.gender.toLowerCase() : null;
+  const voiceCandidates = avatarGender
+    ? voices.filter(v => v.gender && v.gender.toLowerCase() === avatarGender)
+    : voices;
+
+  const topVoice = voiceCandidates
+    .map(v => ({ ...v, _score: scoreVoice(v) }))
+    .filter(v => v._score > 0)
+    .sort((a, b) => b._score - a._score)[0] ?? null;
+
+  console.log(`getTopPicks(${persona}): avatar="${topAvatar?.name}" gender=${avatarGender} → voice="${topVoice?.name}" gender=${topVoice?.gender ?? 'n/a'} candidates=${voiceCandidates.length}`);
+
+  return {
+    avatar_id:   topAvatar?.avatar_id ?? null,
+    avatar_name: topAvatar?.name      ?? null,
+    avatar_gender: avatarGender,
+    voice_id:    topVoice?.voice_id   ?? null,
+    voice_name:  topVoice?.name       ?? null,
+  };
 }
 
 // Submit a HeyGen video render job — returns {video_id, avatar_id, voice_id} or null
