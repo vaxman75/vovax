@@ -62,7 +62,7 @@ const ALL_EMPLOYEES = [
   // Website
   { id: 'dana',   name: 'דנה',   role: 'vovaxmusic.com',      dept: 'website',      manager: null },
   // Engineering
-  { id: 'ariel',  name: 'אריאל', role: 'מנהל הנדסה',         dept: 'engineering',  manager: null },
+  { id: 'ariel',  name: 'אריאל', role: 'מנהל הנדסה',         dept: 'engineering',  manager: null, skillFile: 'ariel-engineering.md' },
   { id: 'noam',   name: 'נועם',  role: 'Permissions',         dept: 'engineering',  manager: 'ariel' },
   { id: 'ran',    name: 'רן',    role: 'Implementation',      dept: 'engineering',  manager: 'ariel' },
   { id: 'shaked', name: 'שקד',   role: 'Hebrew & RTL',        dept: 'engineering',  manager: 'ariel' },
