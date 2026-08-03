@@ -325,21 +325,12 @@ Respond ONLY with this JSON (no markdown, no explanation):
     [qaStatus, qa.reason ?? null, qa.issues ?? [], now, 'yuval-contentcheck', item.id]
   );
 
-  // Signal: auto-approve if QA passes — VOVAX always stays pending for human review
-  if (isSignal && qaStatus === 'pass') {
-    await pool.query(
-      `UPDATE publish_queue SET status='approved', decided_at=$1 WHERE id=$2`,
-      [now, item.id]
-    );
-  }
-
   return {
-    ok:            true,
-    qa_status:     qaStatus,
-    qa_reason:     qa.reason ?? null,
-    qa_issues:     qa.issues ?? [],
-    employee:      'yuval-contentcheck',
-    auto_approved: isSignal && qaStatus === 'pass',
+    ok:        true,
+    qa_status: qaStatus,
+    qa_reason: qa.reason ?? null,
+    qa_issues: qa.issues ?? [],
+    employee:  'yuval-contentcheck',
   };
 }
 
@@ -522,7 +513,7 @@ router.get('/signal/brief', async (_req, res) => {
       [id, platform, topic, finalScript, scriptHash(finalScript), now, trackId]
     );
 
-    // Auto-QA — Signal auto-approves if QA passes (no human needed)
+    // Auto-QA — Signal stays pending after QA; human must approve both channels
     runQaReview({ id, channel: 'signal', topic, script: finalScript })
       .catch((e) => console.error('QA auto-review error (signal):', e.message));
 
