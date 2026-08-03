@@ -109,7 +109,7 @@ async function fetchRailwayDeploys() {
 
 async function buildDigestData() {
   const today = todayStartMs();
-  const [tasksRes, gigsRes, opsRes, activityRes, pendingRes, tracksRes] = await Promise.all([
+  const [tasksRes, gigsRes, opsRes, activityRes, pendingRes, tracksRes, qaRes] = await Promise.all([
     pool.query("SELECT * FROM tasks WHERE section IN ('active','waiting') ORDER BY added_at ASC"),
     pool.query(`SELECT * FROM gigs WHERE date::date >= CURRENT_DATE ORDER BY date ASC LIMIT 5`),
     pool.query("SELECT * FROM ops_items WHERE status IN ('active','waiting') ORDER BY created_at DESC"),
@@ -122,7 +122,7 @@ async function buildDigestData() {
     ),
     // VOVAX items still waiting for manual approval (any age)
     pool.query(
-      `SELECT id, topic, script, created_at
+      `SELECT id, topic, script, created_at, qa_status, qa_reason
        FROM publish_queue WHERE channel='vovax' AND status='pending'
        ORDER BY created_at ASC LIMIT 10`
     ),
@@ -134,6 +134,13 @@ async function buildDigestData() {
        ORDER BY pq.created_at DESC`,
       [today]
     ),
+    // QA results today
+    pool.query(
+      `SELECT id, channel, topic, script, qa_status, qa_reason, qa_issues, qa_at
+       FROM publish_queue WHERE qa_at >= $1 AND qa_status IS NOT NULL
+       ORDER BY qa_at DESC LIMIT 20`,
+      [today]
+    ),
   ]);
   const deploys = await fetchRailwayDeploys();
   return {
@@ -143,6 +150,7 @@ async function buildDigestData() {
     activity:         activityRes.rows,
     pendingApprovals: pendingRes.rows,
     tracksUsedToday:  tracksRes.rows,
+    qaToday:          qaRes.rows,
     deploys,
   };
 }
@@ -257,9 +265,14 @@ function renderPendingApprovals(items) {
     return `<p class="empty">אין טיוטות ממתינות ✓</p>`;
   }
   return items.map((item) => {
-    const preview = (item.script ?? '').slice(0, 100) + (item.script?.length > 100 ? '…' : '');
+    const preview  = (item.script ?? '').slice(0, 100) + (item.script?.length > 100 ? '…' : '');
+    const qaLabel  = item.qa_status === 'pass'
+      ? `<span class="ok">QA ✓</span>`
+      : item.qa_status === 'fail'
+        ? `<span class="err">QA ✗ ${item.qa_reason ? `— ${item.qa_reason}` : ''}</span>`
+        : `<span class="muted">QA ⏳</span>`;
     return `<div class="pending-item">
-      <div><span class="warn">●</span> <strong>${item.topic}</strong></div>
+      <div><span class="warn">●</span> <strong>${item.topic}</strong> ${qaLabel}</div>
       <div style="margin-top:5px;color:#F2F1ED">"${preview}"</div>
       <div class="pending-meta">נוצר: ${fmtDateTimeMs(item.created_at)}</div>
     </div>`;
@@ -290,6 +303,27 @@ function renderDeploys(deploys) {
     </div>`;
   }).join('');
   return header + rows;
+}
+
+function renderQaStats(qaToday) {
+  if (qaToday.length === 0) {
+    return `<p class="empty">לא הורץ QA היום</p>`;
+  }
+  const passed = qaToday.filter((r) => r.qa_status === 'pass').length;
+  const failed = qaToday.filter((r) => r.qa_status === 'fail').length;
+  const summary = `<p style="margin:0 0 8px"><span class="ok">${passed} עברו ✓</span>&nbsp;&nbsp;<span class="err">${failed} נכשלו ✗</span>&nbsp;&nbsp;<span class="muted">— יובל (yuval-contentcheck)</span></p>`;
+  const failRows = qaToday
+    .filter((r) => r.qa_status === 'fail')
+    .map((r) => {
+      const issues = (r.qa_issues ?? []).join(' · ') || r.qa_reason || '';
+      const preview = (r.script ?? '').slice(0, 80) + (r.script?.length > 80 ? '…' : '');
+      return `<div class="pending-item">
+        <div><span class="err">✗</span> <strong>${CH[r.channel] ?? r.channel} · ${r.topic}</strong></div>
+        <div style="margin-top:4px;color:#F2F1ED">"${preview}"</div>
+        ${issues ? `<div class="pending-meta err" style="color:#FF4444">${issues}</div>` : ''}
+      </div>`;
+    }).join('');
+  return summary + (failRows || `<p class="empty muted">אין כשלי QA היום</p>`);
 }
 
 // ── Existing section helpers ───────────────────────────────────────────────────
@@ -323,7 +357,7 @@ function renderOps(ops) {
 // ── Exported HTML builders ────────────────────────────────────────────────────
 
 export async function buildDigestHtml() {
-  const { tasks, gigs, ops, activity, pendingApprovals, tracksUsedToday, deploys } = await buildDigestData();
+  const { tasks, gigs, ops, activity, pendingApprovals, tracksUsedToday, qaToday, deploys } = await buildDigestData();
 
   const activeTasks  = tasks.filter((t) => t.section === 'active');
   const waitingTasks = tasks.filter((t) => t.section === 'waiting');
@@ -350,6 +384,9 @@ ${renderTracksUsed(tracksUsedToday)}
 
 <h2>ממתין לאישורך${pendingLabel}</h2>
 ${renderPendingApprovals(pendingApprovals)}
+
+<h2>QA היום — <span class="count">${qaToday.length}</span> בדיקות</h2>
+${renderQaStats(qaToday)}
 
 <h2>Railway — 48 שעות אחרונות</h2>
 ${renderDeploys(deploys)}

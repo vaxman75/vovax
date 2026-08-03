@@ -1,5 +1,15 @@
 import { Router } from 'express';
+import { readFileSync } from 'fs';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
 import pool from '../db/index.js';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
+function loadEmployeeSkill(filename) {
+  try { return readFileSync(join(__dirname, '../employees', filename), 'utf-8'); }
+  catch { return null; }
+}
 
 const router = Router();
 
@@ -191,12 +201,17 @@ async function generateScript(persona, track, topic) {
     ? rawDesc.replace(/vovax/gi, '[artist]')
     : rawDesc;
 
+  // Redact VOVAX from title too for Signal posts (audit fix)
+  const title = persona === 'signal'
+    ? (track.title ?? '').replace(/vovax/gi, '[track]')
+    : (track.title ?? '');
+
   let prompt;
   if (persona === 'signal') {
     prompt = `You are Signal Detected, an anonymous underground music curator posting on Instagram/TikTok.
 ${angle}
 
-Track: "${track.title}"
+Track: "${title}"
 Genre: ${track.genre ?? 'underground techno'}
 ${desc ? `Description: ${desc}` : ''}
 
@@ -210,7 +225,7 @@ Write only the post text, nothing else.`;
     prompt = `You are VOVAX, an underground heavy melodic techno artist posting on Instagram/TikTok.
 ${angle}
 
-Track: "${track.title}"
+Track: "${title}"
 Genre: ${track.genre ?? 'heavy melodic techno'}
 ${desc ? `Description: ${desc}` : ''}
 
@@ -237,6 +252,90 @@ Write only the post text, nothing else.`;
   const data = await r.json();
   if (!r.ok) return null;
   return data.content?.[0]?.text?.trim() ?? null;
+}
+
+// ─── QA review ───────────────────────────────────────────────────────────────
+
+async function runQaReview(item) {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    return { qa_status: 'skip', qa_reason: 'ANTHROPIC_API_KEY not set', qa_issues: [], employee: 'yuval-contentcheck' };
+  }
+
+  const skillContent = loadEmployeeSkill('yuval-contentcheck.md')
+    ?? 'You are a content quality reviewer for VOVAX and Signal Detected. Return JSON with {approved: bool, reason: string, issues: string[]}.';
+
+  const isSignal = item.channel === 'signal';
+  const persona  = isSignal
+    ? 'Signal Detected (anonymous underground music curator, Instagram)'
+    : 'VOVAX (personal underground techno artist, Instagram)';
+
+  const rules = isSignal
+    ? `- MUST NOT contain "VOVAX" or any artist name\n- Curator discovery voice, not artist voice\n- Energetic, first-person scout tone\n- No hashtags, no emojis`
+    : `- First-person artist voice (dark, minimal, intimate)\n- No hashtags, no emojis\n- No corporate or marketing language`;
+
+  const prompt = `Review this ${persona} post for publication quality.
+
+Post: "${item.script}"
+Topic: ${item.topic}
+
+Approval criteria:
+${rules}
+- Max 120 characters
+- Grammatically correct and standalone-clear
+
+Respond ONLY with this JSON (no markdown, no explanation):
+{"approved": <boolean>, "reason": "<one sentence>", "issues": [<issue strings> or empty array]}`;
+
+  let qa = { approved: false, reason: 'QA API error', issues: [] };
+  try {
+    const r = await fetch('https://api.anthropic.com/v1/messages', {
+      method:  'POST',
+      headers: {
+        'x-api-key':         apiKey,
+        'anthropic-version': '2023-06-01',
+        'content-type':      'application/json',
+      },
+      body: JSON.stringify({
+        model:      'claude-haiku-4-5-20251001',
+        max_tokens: 300,
+        system:     skillContent,
+        messages:   [{ role: 'user', content: prompt }],
+      }),
+    });
+    if (r.ok) {
+      const data = await r.json();
+      const text = data.content?.[0]?.text?.trim() ?? '{}';
+      qa = JSON.parse(text);
+    }
+  } catch { /* keep default */ }
+
+  const qaStatus = qa.approved ? 'pass' : 'fail';
+  const now      = Date.now();
+
+  await pool.query(
+    `UPDATE publish_queue
+     SET qa_status=$1, qa_reason=$2, qa_issues=$3, qa_at=$4, qa_employee=$5
+     WHERE id=$6`,
+    [qaStatus, qa.reason ?? null, qa.issues ?? [], now, 'yuval-contentcheck', item.id]
+  );
+
+  // Signal: auto-approve if QA passes — VOVAX always stays pending for human review
+  if (isSignal && qaStatus === 'pass') {
+    await pool.query(
+      `UPDATE publish_queue SET status='approved', decided_at=$1 WHERE id=$2`,
+      [now, item.id]
+    );
+  }
+
+  return {
+    ok:            true,
+    qa_status:     qaStatus,
+    qa_reason:     qa.reason ?? null,
+    qa_issues:     qa.issues ?? [],
+    employee:      'yuval-contentcheck',
+    auto_approved: isSignal && qaStatus === 'pass',
+  };
 }
 
 // ─── VOVAX endpoints ──────────────────────────────────────────────────────────
@@ -295,6 +394,9 @@ router.post('/vovax/generate', async (req, res) => {
       [item.id, item.channel, item.platform, item.topic, item.script, item.script_hash,
        item.avatar_id, item.status, item.created_at, item.track_id]
     );
+
+    // Auto-QA (non-blocking — VOVAX stays pending after QA; human must still approve)
+    runQaReview(item).catch((e) => console.error('QA auto-review error (vovax):', e.message));
 
     res.json({ ok: true, item, avatar_ids_to_avoid: usedAvatarIds });
   } catch (err) {
@@ -362,14 +464,14 @@ router.get('/vovax/next-approved', async (req, res) => {
   res.json({ item });
 });
 
-// Zapier calls after successful publish
+// Zapier calls after successful publish — requires approved status (security: no bypass via direct POST)
 router.post('/vovax/:id/mark-published', async (req, res) => {
   const { rows } = await pool.query(
     `UPDATE publish_queue SET status='published', published_at=$1
-     WHERE id=$2 AND channel='vovax' RETURNING *`,
+     WHERE id=$2 AND channel='vovax' AND status='approved' RETURNING *`,
     [Date.now(), req.params.id]
   );
-  if (!rows[0]) return res.status(404).json({ error: 'not found' });
+  if (!rows[0]) return res.status(404).json({ error: 'not found or not approved' });
   res.json({ ok: true, item: rows[0] });
 });
 
@@ -415,6 +517,10 @@ router.get('/signal/brief', async (_req, res) => {
       [id, platform, topic, finalScript, scriptHash(finalScript), now, trackId]
     );
 
+    // Auto-QA — Signal auto-approves if QA passes (no human needed)
+    runQaReview({ id, channel: 'signal', topic, script: finalScript })
+      .catch((e) => console.error('QA auto-review error (signal):', e.message));
+
     let picks = { avatar_id: null, avatar_name: null, voice_id: null, voice_name: null };
     try { picks = await getTopPicks('signal'); } catch { /* HeyGen API unavailable */ }
 
@@ -424,17 +530,33 @@ router.get('/signal/brief', async (_req, res) => {
   }
 });
 
-// Zapier calls after successful publish
+// Zapier calls after successful publish — requires approved status (security: no bypass via direct POST)
 router.post('/signal/mark-published', async (req, res) => {
   const { id, avatar_id } = req.body;
   if (!id) return res.status(400).json({ error: 'id required' });
   const { rows } = await pool.query(
     `UPDATE publish_queue SET status='published', published_at=$1, avatar_id=$2
-     WHERE id=$3 AND channel='signal' RETURNING *`,
+     WHERE id=$3 AND channel='signal' AND status='approved' RETURNING *`,
     [Date.now(), avatar_id ?? null, id]
   );
-  if (!rows[0]) return res.status(404).json({ error: 'not found' });
+  if (!rows[0]) return res.status(404).json({ error: 'not found or not approved' });
   res.json({ ok: true, item: rows[0] });
+});
+
+// ─── Manual QA trigger ───────────────────────────────────────────────────────
+
+router.post('/:id/qa-review', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT * FROM publish_queue WHERE id=$1`, [req.params.id]
+    );
+    const item = rows[0];
+    if (!item) return res.status(404).json({ error: 'not found' });
+    const result = await runQaReview(item);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ─── Top-picks endpoint (debug / manual inspection) ──────────────────────────
