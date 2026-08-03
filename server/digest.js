@@ -76,17 +76,14 @@ async function fetchRailwayDeploys() {
   const projectId = process.env.RAILWAY_PROJECT_ID;
   if (!token || !projectId) return null; // section will show "configure" hint
   const serviceId = process.env.RAILWAY_SERVICE_ID ?? null; // auto-set by Railway
-  try {
-    const input = serviceId
-      ? `{projectId:$p, serviceId:$s}`
-      : `{projectId:$p}`;
-    const vars = serviceId
-      ? { p: projectId, s: serviceId }
-      : { p: projectId };
-    const queryStr = serviceId
-      ? `query D($p:String!,$s:String!){deployments(input:{projectId:$p,serviceId:$s}){edges{node{id status createdAt meta{commitMessage}}}}}`
-      : `query D($p:String!){deployments(input:{projectId:$p}){edges{node{id status createdAt meta{commitMessage}}}}}`;
 
+  // meta is a JSON scalar — no subfields allowed in query
+  const queryStr = serviceId
+    ? `query D($p:String!,$s:String!){deployments(input:{projectId:$p,serviceId:$s}){edges{node{status createdAt meta}}}}`
+    : `query D($p:String!){deployments(input:{projectId:$p}){edges{node{status createdAt meta}}}}`;
+  const vars = serviceId ? { p: projectId, s: serviceId } : { p: projectId };
+
+  try {
     const r = await fetch('https://backboard.railway.app/graphql/v2', {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -94,9 +91,15 @@ async function fetchRailwayDeploys() {
     });
     if (!r.ok) return [];
     const data = await r.json();
+    if (data.errors?.length) return [];
     const since = Date.now() - 48 * 60 * 60 * 1000;
     return (data?.data?.deployments?.edges ?? [])
-      .map((e) => e.node)
+      .map((e) => {
+        const node = e.node;
+        // meta is a raw JSON object (Railway returns it as scalar); extract reason
+        const reason = node.meta?.reason ?? null;
+        return { status: node.status, createdAt: node.createdAt, reason };
+      })
       .filter((d) => new Date(d.createdAt).getTime() > since)
       .slice(0, 6);
   } catch { return []; }
@@ -279,11 +282,11 @@ function renderDeploys(deploys) {
       timeZone: 'Asia/Jerusalem', day: 'numeric', month: 'numeric',
       hour: '2-digit', minute: '2-digit',
     });
-    const msg = d.meta?.commitMessage ? d.meta.commitMessage.slice(0, 55) : '';
+    const reason = d.reason ? `(${d.reason})` : '';
     return `<div class="deploy-row">
       <span style="color:${color};min-width:88px">${label}</span>
       <span class="muted" style="min-width:85px">${when}</span>
-      ${msg ? `<span class="muted" style="font-size:12px">${msg}</span>` : ''}
+      ${reason ? `<span class="muted" style="font-size:12px">${reason}</span>` : ''}
     </div>`;
   }).join('');
   return header + rows;
