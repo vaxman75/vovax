@@ -265,7 +265,9 @@ ${context}`;
         .map(r => loadSkill(r))
         .filter(Boolean)
         .join('\n\n---\n');
-      const refs = refContent ? `\n\n---\n## ספריית רפרנסים\n${refContent}` : '';
+      const refs = refContent
+        ? `\n\n---\n## ספריית רפרנסים — טעונה כעת בזיכרון שלך\nהמידע הבא כבר זמין לך. אל תאמר שאתה "הולך לבדוק" — הוא כאן. המלץ רק על פלאגינים שמופיעים ברשימה המאומתת הזו:\n\n${refContent}`
+        : '';
       if (skill) systemPrompt = skill + refs + '\n\n---\nמצב המערכת הנוכחי:\n' + context;
     }
   }
