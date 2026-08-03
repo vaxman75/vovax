@@ -20,10 +20,10 @@ const ALL_EMPLOYEES = [
   { id: 'talia',  name: 'טליה',  role: 'QA מוזיקה',          dept: 'music',        manager: 'amit',  skillFile: 'talia-creationqa.md' },
   { id: 'elad',   name: 'אלעד', role: 'מנהל מוזיקה',         dept: 'music',        manager: 'amit',  skillFile: 'elad-musicdirector.md' },
   { id: 'tom',    name: 'תום',   role: 'Studio One Lead',     dept: 'music',        manager: 'elad',  skillFile: 'tom-studioone.md' },
-  { id: 'liam',   name: 'ליאם',  role: 'Studio One',          dept: 'music',        manager: 'tom',   skillFile: 'liam-musician-s1.md' },
+  { id: 'liam',   name: 'ליאם',  role: 'Studio One',          dept: 'music',        manager: 'tom',   skillFile: 'liam-musician-s1.md',    refs: ['omri-production/references/studio-plugins.md'] },
   { id: 'ido',    name: 'עידו',  role: 'Studio One',          dept: 'music',        manager: 'tom',   skillFile: 'ido-dj-s1.md' },
   { id: 'yoni',   name: 'יוני',  role: 'Cubase Lead',         dept: 'music',        manager: 'elad',  skillFile: 'yoni-cubase.md' },
-  { id: 'or',     name: 'אור',   role: 'Cubase',              dept: 'music',        manager: 'yoni',  skillFile: 'or-musician-cubase.md' },
+  { id: 'or',     name: 'אור',   role: 'Cubase',              dept: 'music',        manager: 'yoni',  skillFile: 'or-musician-cubase.md',  refs: ['omri-production/references/studio-plugins.md'] },
   { id: 'shai',   name: 'שי',    role: 'Cubase',              dept: 'music',        manager: 'yoni',  skillFile: 'shai-dj-cubase.md' },
   // Art & Visual
   { id: 'daniel', name: 'דניאל', role: 'מנהל אמנות וויזואל', dept: 'art',          manager: null,    skillFile: 'daniel-creators.md' },
@@ -261,7 +261,12 @@ ${context}`;
     const emp = ALL_EMPLOYEES.find(e => e.id === employeeId);
     if (emp?.skillFile) {
       const skill = loadSkill(emp.skillFile);
-      if (skill) systemPrompt = skill + '\n\n---\nמצב המערכת הנוכחי:\n' + context;
+      const refContent = (emp.refs ?? [])
+        .map(r => loadSkill(r))
+        .filter(Boolean)
+        .join('\n\n---\n');
+      const refs = refContent ? `\n\n---\n## ספריית רפרנסים\n${refContent}` : '';
+      if (skill) systemPrompt = skill + refs + '\n\n---\nמצב המערכת הנוכחי:\n' + context;
     }
   }
 
