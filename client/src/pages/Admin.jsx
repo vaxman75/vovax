@@ -2,57 +2,78 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 
 const API = '';
 const TOKEN_KEY = 'vovax_admin_token';
-const CH = { vovax: 'VOVAX', signal: 'Signal Detected' };
-const ST_CLR = { published: '#4CAF50', approved: '#46C7FF', pending: '#FFB347', rejected: '#8B8A85' };
-const DEPLOY_CLR = { SUCCESS: '#4CAF50', FAILED: '#FF4444', CRASHED: '#FF4444', BUILDING: '#46C7FF', DEPLOYING: '#46C7FF', SLEEPING: '#8B8A85', REMOVED: '#8B8A85', WAITING: '#FFB347' };
-const DEPLOY_LABEL = { SUCCESS: '✓ הצלחה', FAILED: '✗ נכשל', CRASHED: '✗ קרס', BUILDING: '⏳ בנייה', DEPLOYING: '⏳ דפלוי', SLEEPING: '💤 ישן', REMOVED: 'הוסר', WAITING: '⏳ ממתין' };
-const EMPLOYEES = [
-  { id: '', label: 'כללי (VOVAX context)' },
-  { id: 'yuval', label: 'יובל — בדיקת תוכן' },
-  { id: 'asaf', label: 'אסף — מנהל פרסום' },
-  { id: 'tal', label: 'טל — תסריט' },
-  { id: 'adam', label: 'אדם — אבטחה' },
-  { id: 'nadav', label: 'נדב — ניטור' },
-  { id: 'shira', label: 'שירה — מותג' },
+
+const DEPT_ORDER = [
+  'publishing', 'brand', 'music', 'art', 'distribution',
+  'production', 'sales', 'avovax', 'website', 'engineering',
+  'cyber', 'finance', 'personal', 'core',
 ];
 
-function token() { return localStorage.getItem(TOKEN_KEY); }
-function authHeaders() { return { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` }; }
-function fmtTime(ms) {
-  return new Date(Number(ms)).toLocaleTimeString('he-IL', { timeZone: 'Asia/Jerusalem', hour: '2-digit', minute: '2-digit' });
-}
-function fmtDateTime(ms) {
-  return new Date(Number(ms)).toLocaleString('he-IL', { timeZone: 'Asia/Jerusalem', day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' });
-}
-function fmtDeployTime(iso) {
-  return new Date(iso).toLocaleString('he-IL', { timeZone: 'Asia/Jerusalem', day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' });
+const DEPT_META_FALLBACK = {
+  music:        { label: 'יצירת מוזיקה',    icon: '🎵' },
+  art:          { label: 'אמנות וויזואל',   icon: '🎨' },
+  publishing:   { label: 'פרסום אוטומטי',   icon: '📢' },
+  brand:        { label: 'מותג וקול',       icon: '🔊' },
+  distribution: { label: 'הפצה',            icon: '📡' },
+  production:   { label: 'הפקה',            icon: '🎛️' },
+  sales:        { label: 'מכירות ולייבלים', icon: '💼' },
+  avovax:       { label: 'AVOVAX Label',     icon: '🏷️' },
+  website:      { label: 'אתר',             icon: '🌐' },
+  engineering:  { label: 'הנדסה',           icon: '⚙️' },
+  cyber:        { label: 'סייבר',           icon: '🔒' },
+  finance:      { label: 'כספים',           icon: '💰' },
+  personal:     { label: 'ליבה אישית',      icon: '👤' },
+  core:         { label: 'VOVAX Core',       icon: '⭐' },
+};
+
+const ST_CLR  = { published: '#4CAF50', approved: '#46C7FF', pending: '#FFB347', rejected: '#555' };
+const QA_CLR  = { pass: '#4CAF50', fail: '#FF4444' };
+const DEPLOY_CLR   = { SUCCESS: '#4CAF50', FAILED: '#FF4444', CRASHED: '#FF4444', BUILDING: '#46C7FF', DEPLOYING: '#46C7FF', SLEEPING: '#555', REMOVED: '#555', WAITING: '#FFB347' };
+const DEPLOY_LABEL = { SUCCESS: '✓ הצלחה', FAILED: '✗ נכשל', CRASHED: '✗ קרס', BUILDING: '⏳ בנייה', DEPLOYING: '⏳ דפלוי', SLEEPING: '💤 ישן', REMOVED: 'הוסר', WAITING: '⏳ ממתין' };
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function getToken()    { return localStorage.getItem(TOKEN_KEY); }
+function authHdr()     { return { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` }; }
+function fmtTime(ms)   { return new Date(Number(ms)).toLocaleTimeString('he-IL', { timeZone: 'Asia/Jerusalem', hour: '2-digit', minute: '2-digit' }); }
+function fmtDate(ms)   { return new Date(Number(ms)).toLocaleString('he-IL', { timeZone: 'Asia/Jerusalem', day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' }); }
+function fmtIso(iso)   { return new Date(iso).toLocaleString('he-IL', { timeZone: 'Asia/Jerusalem', day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' }); }
+
+// ── Colours & chips ───────────────────────────────────────────────────────────
+
+function StatusChip({ status }) {
+  const clr = ST_CLR[status] ?? '#8B8A85';
+  const lbl = { published: 'פורסם', approved: 'אושר', pending: 'ממתין', rejected: 'נדחה' }[status] ?? status;
+  return <span style={{ fontSize: 10, color: clr, border: `1px solid ${clr}`, borderRadius: 4, padding: '1px 6px' }}>{lbl}</span>;
 }
 
-// ── Login screen ──────────────────────────────────────────────────────────────
+function QaChip({ status, reason }) {
+  if (!status) return <span style={{ fontSize: 10, color: '#555' }}>QA ⏳</span>;
+  const clr = QA_CLR[status] ?? '#555';
+  return (
+    <span title={reason ?? ''} style={{ fontSize: 10, color: clr, border: `1px solid ${clr}`, borderRadius: 4, padding: '1px 6px' }}>
+      QA {status === 'pass' ? '✓' : '✗'}
+    </span>
+  );
+}
+
+// ── Login ─────────────────────────────────────────────────────────────────────
 
 function LoginScreen({ onLogin }) {
   const [pw, setPw] = useState('');
   const [err, setErr] = useState('');
   const [loading, setLoading] = useState(false);
 
-  async function handleSubmit(e) {
+  async function submit(e) {
     e.preventDefault();
-    setLoading(true);
-    setErr('');
+    setLoading(true); setErr('');
     try {
-      const r = await fetch(`${API}/api/admin/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password: pw }),
-      });
-      const data = await r.json();
+      const r = await fetch(`${API}/api/admin/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: pw }) });
+      const d = await r.json();
       if (!r.ok) { setErr('סיסמה שגויה'); setLoading(false); return; }
-      localStorage.setItem(TOKEN_KEY, data.token);
+      localStorage.setItem(TOKEN_KEY, d.token);
       onLogin();
-    } catch {
-      setErr('שגיאת חיבור');
-      setLoading(false);
-    }
+    } catch { setErr('שגיאת חיבור'); setLoading(false); }
   }
 
   return (
@@ -60,21 +81,12 @@ function LoginScreen({ onLogin }) {
       <div style={{ width: 320, padding: 32 }}>
         <p style={{ color: '#46C7FF', fontSize: 11, letterSpacing: '0.15em', textTransform: 'uppercase', margin: '0 0 8px' }}>VOVAX</p>
         <h1 style={{ color: '#F2F1ED', fontSize: 22, margin: '0 0 28px' }}>Command Center</h1>
-        <form onSubmit={handleSubmit} dir="rtl">
-          <input
-            type="password"
-            placeholder="סיסמה"
-            value={pw}
-            onChange={e => setPw(e.target.value)}
-            autoFocus
-            style={{ width: '100%', background: '#131316', border: '1px solid #232326', borderRadius: 6, color: '#F2F1ED', padding: '10px 12px', fontSize: 14, marginBottom: 12, boxSizing: 'border-box' }}
-          />
+        <form onSubmit={submit} dir="rtl">
+          <input type="password" placeholder="סיסמה" value={pw} onChange={e => setPw(e.target.value)} autoFocus
+            style={{ width: '100%', background: '#131316', border: '1px solid #232326', borderRadius: 6, color: '#F2F1ED', padding: '10px 12px', fontSize: 14, marginBottom: 12, boxSizing: 'border-box' }} />
           {err && <p style={{ color: '#FF4444', fontSize: 12, margin: '0 0 10px' }}>{err}</p>}
-          <button
-            type="submit"
-            disabled={loading}
-            style={{ width: '100%', background: '#46C7FF', color: '#0A0A0C', border: 'none', borderRadius: 6, padding: '10px 0', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}
-          >
+          <button type="submit" disabled={loading}
+            style={{ width: '100%', background: '#46C7FF', color: '#0A0A0C', border: 'none', borderRadius: 6, padding: '10px 0', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>
             {loading ? '…' : 'כניסה'}
           </button>
         </form>
@@ -83,204 +95,522 @@ function LoginScreen({ onLogin }) {
   );
 }
 
-// ── Section header ─────────────────────────────────────────────────────────────
+// ── Sidebar ───────────────────────────────────────────────────────────────────
 
-function SectionHeader({ children }) {
+function Sidebar({ page, setPage, data, onLogout, onRefresh, refreshing }) {
+  const pendingVovax  = data?.pending?.length ?? 0;
+  const pendingSignal = data?.pendingSignal ?? 0;
+  const totalPending  = pendingVovax + pendingSignal;
+  const deptMeta      = data?.deptMeta ?? DEPT_META_FALLBACK;
+
+  const navItem = (key, label, icon, badge) => {
+    const active = page === key;
+    return (
+      <button key={key} onClick={() => setPage(key)}
+        style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'right', background: active ? '#18181C' : 'none', border: 'none', borderRadius: 6, color: active ? '#F2F1ED' : '#8B8A85', padding: '6px 10px', fontSize: 13, cursor: 'pointer', justifyContent: 'flex-start' }}>
+        <span style={{ fontSize: 14 }}>{icon}</span>
+        <span style={{ flex: 1 }}>{label}</span>
+        {badge > 0 && (
+          <span style={{ background: '#FF4444', color: '#fff', fontSize: 9, fontWeight: 700, borderRadius: 8, padding: '1px 5px' }}>{badge}</span>
+        )}
+      </button>
+    );
+  };
+
   return (
-    <h2 style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.12em', color: '#8B8A85', margin: '0 0 10px', borderTop: '1px solid #232326', paddingTop: 16 }}>
-      {children}
-    </h2>
+    <div dir="rtl" style={{ width: 200, minWidth: 200, background: '#0D0D10', borderLeft: '1px solid #1a1a1d', height: '100vh', position: 'sticky', top: 0, display: 'flex', flexDirection: 'column', padding: '0 8px', overflow: 'hidden' }}>
+      {/* Logo */}
+      <div style={{ padding: '14px 10px 10px', borderBottom: '1px solid #1a1a1d', marginBottom: 6 }}>
+        <div style={{ color: '#46C7FF', fontSize: 12, fontWeight: 700, letterSpacing: '0.15em' }}>VOVAX</div>
+        <div style={{ color: '#555', fontSize: 10 }}>Command Center</div>
+      </div>
+
+      {/* Overview */}
+      <div style={{ marginBottom: 6 }}>
+        {navItem('overview', 'Overview', '🏠', totalPending)}
+      </div>
+
+      <div style={{ borderTop: '1px solid #1a1a1d', paddingTop: 6, flex: 1, overflowY: 'auto' }}>
+        {DEPT_ORDER.map(dKey => {
+          const m = deptMeta[dKey] ?? DEPT_META_FALLBACK[dKey];
+          if (!m) return null;
+          const badge = dKey === 'publishing' ? totalPending : 0;
+          return navItem(`dept/${dKey}`, m.label, m.icon, badge);
+        })}
+      </div>
+
+      {/* Bottom */}
+      <div style={{ borderTop: '1px solid #1a1a1d', paddingTop: 8, paddingBottom: 12 }}>
+        {navItem('chat', 'שיחה עם הצוות', '💬', 0)}
+        <div style={{ display: 'flex', gap: 6, padding: '6px 10px 0' }}>
+          <button onClick={onRefresh} disabled={refreshing}
+            style={{ flex: 1, background: 'none', border: '1px solid #232326', color: '#8B8A85', borderRadius: 4, padding: '4px 0', fontSize: 10, cursor: 'pointer' }}>
+            {refreshing ? '↻' : 'רענן'}
+          </button>
+          <button onClick={onLogout}
+            style={{ flex: 1, background: 'none', border: 'none', color: '#555', fontSize: 10, cursor: 'pointer' }}>
+            יציאה
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
-// ── Pending queue ─────────────────────────────────────────────────────────────
+// ── Overview page ─────────────────────────────────────────────────────────────
 
-function PendingQueue({ items, onAction }) {
-  const [acting, setActing] = useState({});
+function OverviewPage({ data, setPage }) {
+  const pending      = data?.pending ?? [];
+  const activity     = data?.activity ?? [];
+  const qaToday      = data?.qaToday ?? [];
+  const deploys      = data?.deploys ?? [];
+  const allEmps      = data?.employees ?? [];
+  const deptMeta     = data?.deptMeta ?? DEPT_META_FALLBACK;
+  const pendingSignal = data?.pendingSignal ?? 0;
 
-  async function act(id, action) {
+  const grouped = {};
+  for (const a of activity) {
+    if (!grouped[a.channel]) grouped[a.channel] = {};
+    grouped[a.channel][a.status] = a.cnt;
+  }
+  const qaPassed = qaToday.filter(r => r.qa_status === 'pass').length;
+  const qaFailed = qaToday.filter(r => r.qa_status === 'fail').length;
+  const lastDeploy = deploys[0];
+
+  return (
+    <div dir="rtl" style={{ padding: '24px 28px', maxWidth: 860, margin: '0 auto' }}>
+      <h1 style={{ color: '#F2F1ED', fontSize: 20, margin: '0 0 6px' }}>Overview</h1>
+      <p style={{ color: '#555', fontSize: 12, margin: '0 0 24px' }}>
+        {new Date().toLocaleDateString('he-IL', { timeZone: 'Asia/Jerusalem', weekday: 'long', day: 'numeric', month: 'long' })}
+      </p>
+
+      {/* Snapshot bar */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 28 }}>
+        {[
+          { label: 'ממתין לאישור', value: (pending.length + pendingSignal) || '✓', clr: (pending.length + pendingSignal) > 0 ? '#FFB347' : '#4CAF50' },
+          { label: 'QA היום',      value: `${qaPassed}✓ ${qaFailed}✗`,              clr: qaFailed > 0 ? '#FF4444' : '#4CAF50' },
+          { label: 'טראקים ב-DB', value: data?.trackCount ?? '…',                   clr: '#46C7FF' },
+          { label: 'דפלוי אחרון',  value: lastDeploy ? DEPLOY_LABEL[lastDeploy.status] ?? lastDeploy.status : '—', clr: lastDeploy ? (DEPLOY_CLR[lastDeploy.status] ?? '#555') : '#555' },
+        ].map(s => (
+          <div key={s.label} style={{ background: '#131316', border: '1px solid #1a1a1d', borderRadius: 8, padding: '12px 14px' }}>
+            <div style={{ color: s.clr, fontSize: 16, fontWeight: 700, marginBottom: 3 }}>{s.value}</div>
+            <div style={{ color: '#555', fontSize: 11 }}>{s.label}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Department cards */}
+      <h2 style={{ color: '#8B8A85', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.1em', margin: '0 0 12px' }}>מחלקות</h2>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 8, marginBottom: 28 }}>
+        {DEPT_ORDER.map(dKey => {
+          const m = deptMeta[dKey] ?? DEPT_META_FALLBACK[dKey];
+          if (!m) return null;
+          const count = allEmps.filter(e => e.dept === dKey).length;
+          const manager = allEmps.find(e => e.dept === dKey && !e.manager);
+          return (
+            <button key={dKey} onClick={() => setPage(`dept/${dKey}`)}
+              style={{ background: '#131316', border: '1px solid #1a1a1d', borderRadius: 8, padding: '12px 14px', textAlign: 'right', cursor: 'pointer', transition: 'border-color 0.15s' }}
+              onMouseEnter={e => e.currentTarget.style.borderColor = '#46C7FF'}
+              onMouseLeave={e => e.currentTarget.style.borderColor = '#1a1a1d'}>
+              <div style={{ fontSize: 20, marginBottom: 4 }}>{m.icon}</div>
+              <div style={{ color: '#F2F1ED', fontSize: 12, fontWeight: 600, marginBottom: 2 }}>{m.label}</div>
+              {manager && <div style={{ color: '#555', fontSize: 10 }}>{manager.name}</div>}
+              <div style={{ color: '#555', fontSize: 10 }}>{count} עובדים</div>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Pending items — links only, no approve buttons */}
+      {pending.length > 0 && (
+        <>
+          <h2 style={{ color: '#8B8A85', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.1em', margin: '0 0 12px' }}>
+            ממתין לאישור — {pending.length} VOVAX{pendingSignal > 0 ? ` · ${pendingSignal} Signal` : ''}
+          </h2>
+          {pending.slice(0, 5).map(item => (
+            <div key={item.id} style={{ background: '#131316', border: '1px solid #1a1a1d', borderRadius: 8, padding: '10px 14px', marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <span style={{ color: '#F2F1ED', fontSize: 13, fontWeight: 600, marginLeft: 8 }}>{item.topic}</span>
+                <QaChip status={item.qa_status} reason={item.qa_reason} />
+                {item.track_title && <span style={{ color: '#555', fontSize: 11, marginRight: 8 }}>🎵 {item.track_title}</span>}
+              </div>
+              <button onClick={() => setPage('dept/publishing')}
+                style={{ background: 'none', border: '1px solid #46C7FF', color: '#46C7FF', borderRadius: 5, padding: '4px 12px', fontSize: 11, cursor: 'pointer' }}>
+                לאישור →
+              </button>
+            </div>
+          ))}
+          {pending.length > 5 && (
+            <button onClick={() => setPage('dept/publishing')}
+              style={{ background: 'none', border: 'none', color: '#46C7FF', fontSize: 12, cursor: 'pointer', padding: 0 }}>
+              + {pending.length - 5} נוספות בדף פרסום
+            </button>
+          )}
+        </>
+      )}
+
+      {/* Activity */}
+      {Object.keys(grouped).length > 0 && (
+        <>
+          <h2 style={{ color: '#8B8A85', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.1em', margin: '20px 0 10px' }}>פעילות היום</h2>
+          {Object.entries(grouped).map(([ch, sts]) => (
+            <div key={ch} style={{ fontSize: 13, color: '#F2F1ED', marginBottom: 4 }}>
+              <span style={{ color: '#555' }}>{ch === 'vovax' ? 'VOVAX' : 'Signal'}: </span>
+              {Object.entries(sts).map(([st, cnt]) => (
+                <span key={st} style={{ color: ST_CLR[st] ?? '#F2F1ED', marginLeft: 12 }}>{cnt} {st}</span>
+              ))}
+            </div>
+          ))}
+        </>
+      )}
+
+      {/* Last deploy */}
+      {deploys.length > 0 && (
+        <>
+          <h2 style={{ color: '#8B8A85', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.1em', margin: '20px 0 10px' }}>Railway — אחרון</h2>
+          {deploys.slice(0, 3).map((d, i) => (
+            <div key={i} style={{ fontSize: 12, color: '#555', marginBottom: 3 }}>
+              <span style={{ color: DEPLOY_CLR[d.status] ?? '#555', marginLeft: 8 }}>{DEPLOY_LABEL[d.status] ?? d.status}</span>
+              {fmtIso(d.createdAt)}
+            </div>
+          ))}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── Employee card ─────────────────────────────────────────────────────────────
+
+function EmployeeCard({ emp, onChat }) {
+  return (
+    <div style={{ background: '#131316', border: '1px solid #1a1a1d', borderRadius: 8, padding: '12px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div>
+        <div style={{ color: '#F2F1ED', fontSize: 13, fontWeight: 600 }}>{emp.name}</div>
+        <div style={{ color: '#555', fontSize: 11 }}>{emp.role}</div>
+        {emp.manager && <div style={{ color: '#333', fontSize: 10 }}>→ {emp.manager}</div>}
+      </div>
+      {emp.skillFile && (
+        <button onClick={() => onChat(emp.id)}
+          style={{ background: 'none', border: '1px solid #232326', color: '#8B8A85', borderRadius: 5, padding: '4px 10px', fontSize: 11, cursor: 'pointer' }}>
+          שוחח
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ── Media renderer ────────────────────────────────────────────────────────────
+
+function MediaBlock({ url }) {
+  if (!url) return null;
+  const lower = url.toLowerCase();
+  if (lower.match(/\.(mp3|wav|ogg|m4a)($|\?)/))
+    return <audio controls src={url} style={{ width: '100%', marginTop: 6 }} />;
+  if (lower.match(/\.(mp4|webm|mov)($|\?)/))
+    return <video controls src={url} style={{ width: '100%', maxHeight: 200, marginTop: 6, borderRadius: 6 }} />;
+  if (lower.match(/\.(jpg|jpeg|png|gif|webp)($|\?)/))
+    return <img src={url} alt="" style={{ maxWidth: '100%', maxHeight: 200, marginTop: 6, borderRadius: 6 }} />;
+  return null;
+}
+
+// ── Publishing department page ────────────────────────────────────────────────
+
+function PublishingPage({ employees, onAction }) {
+  const [deptData, setDeptData] = useState(null);
+  const [acting, setActing]     = useState({});
+  const [tab, setTab]           = useState('vovax');
+
+  const load = useCallback(async () => {
+    const r = await fetch(`${API}/api/admin/dept/publishing`, { headers: authHdr() });
+    if (r.ok) setDeptData(await r.json());
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  async function act(id, channel, action) {
     setActing(a => ({ ...a, [id]: action }));
-    await fetch(`${API}/api/publish/vovax/${id}/${action}`, { method: 'POST', headers: authHeaders() });
+    await fetch(`${API}/api/publish/${channel}/${id}/${action}`, { method: 'POST', headers: authHdr() });
+    await load();
     onAction();
     setActing(a => ({ ...a, [id]: null }));
   }
 
-  if (items.length === 0) {
-    return <p style={{ color: '#4CAF50', fontSize: 13, margin: '0 0 16px' }}>אין טיוטות ממתינות ✓</p>;
-  }
+  const vovax  = deptData?.vovax  ?? [];
+  const signal = deptData?.signal ?? [];
+  const items  = tab === 'vovax' ? vovax : signal;
+
+  const tabBtn = (key, label, count) => (
+    <button onClick={() => setTab(key)}
+      style={{ background: tab === key ? '#18181C' : 'none', border: 'none', color: tab === key ? '#F2F1ED' : '#555', borderRadius: 6, padding: '6px 14px', fontSize: 13, cursor: 'pointer', borderBottom: tab === key ? '2px solid #46C7FF' : '2px solid transparent' }}>
+      {label} {count > 0 && <span style={{ color: '#FFB347', fontSize: 11 }}>({count})</span>}
+    </button>
+  );
 
   return (
-    <div style={{ marginBottom: 4 }}>
+    <div dir="rtl" style={{ padding: '24px 28px' }}>
+      <h1 style={{ color: '#F2F1ED', fontSize: 20, margin: '0 0 4px' }}>📢 פרסום אוטומטי</h1>
+      <p style={{ color: '#555', fontSize: 12, margin: '0 0 20px' }}>{employees.length} עובדים — אסף (מנהל)</p>
+
+      {/* Employee grid */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 8, marginBottom: 24 }}>
+        {employees.map(e => (
+          <div key={e.id} style={{ background: '#131316', border: '1px solid #1a1a1d', borderRadius: 8, padding: '10px 12px' }}>
+            <div style={{ color: '#F2F1ED', fontSize: 12, fontWeight: 600 }}>{e.name}</div>
+            <div style={{ color: '#555', fontSize: 11 }}>{e.role}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Tabs */}
+      <div style={{ borderBottom: '1px solid #1a1a1d', marginBottom: 16 }}>
+        {tabBtn('vovax',  'VOVAX',           vovax.filter(i  => i.status  === 'pending').length)}
+        {tabBtn('signal', 'Signal Detected', signal.filter(i => i.status === 'pending').length)}
+      </div>
+
+      {!deptData && <p style={{ color: '#555', fontSize: 13 }}>טוען…</p>}
+
       {items.map(item => {
-        const qa = item.qa_status;
-        const qaLabel = qa === 'pass'
-          ? <span style={{ color: '#4CAF50', fontSize: 11 }}>QA ✓</span>
-          : qa === 'fail'
-            ? <span style={{ color: '#FF4444', fontSize: 11 }} title={item.qa_reason}>QA ✗</span>
-            : <span style={{ color: '#8B8A85', fontSize: 11 }}>QA ⏳</span>;
-
+        const isPending  = item.status === 'pending';
+        const channel    = tab;
+        const isActing   = acting[item.id];
         return (
-          <div key={item.id} dir="rtl" style={{ background: '#131316', border: '1px solid #232326', borderRadius: 8, padding: '12px 14px', marginBottom: 10 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                <span style={{ color: '#F2F1ED', fontWeight: 600, fontSize: 13 }}>{item.topic}</span>
-                <span style={{ color: '#8B8A85', fontSize: 11 }}>Instagram</span>
-                {qaLabel}
+          <div key={item.id} style={{ background: '#131316', border: `1px solid ${isPending ? '#2a2010' : '#1a1a1d'}`, borderRadius: 10, padding: '14px 16px', marginBottom: 12 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                <span style={{ color: '#F2F1ED', fontWeight: 600, fontSize: 14 }}>{item.topic}</span>
+                <StatusChip status={item.status} />
+                <QaChip status={item.qa_status} reason={item.qa_reason} />
               </div>
-              <span style={{ color: '#8B8A85', fontSize: 11 }}>{fmtDateTime(item.created_at)}</span>
+              <span style={{ color: '#555', fontSize: 11, whiteSpace: 'nowrap' }}>{fmtDate(item.created_at)}</span>
             </div>
-
-            <p style={{ color: '#F2F1ED', fontSize: 14, lineHeight: 1.5, margin: '0 0 6px' }}>
-              "{item.script}"
-            </p>
 
             {item.track_title && (
-              <p style={{ color: '#8B8A85', fontSize: 11, margin: '0 0 8px' }}>
-                🎵 {item.track_title}{item.track_genre ? ` · ${item.track_genre}` : ''}
+              <p style={{ color: '#8B8A85', fontSize: 12, margin: '0 0 8px' }}>
+                🎵 {item.track_title}{item.track_genre ? ` · ${item.track_genre}` : ''}{item.track_bpm ? ` · ${item.track_bpm} BPM` : ''}
               </p>
             )}
 
-            {qa === 'fail' && item.qa_reason && (
-              <p style={{ color: '#FF4444', fontSize: 11, margin: '0 0 10px', borderRight: '2px solid #FF4444', paddingRight: 8 }}>
+            <p style={{ color: '#F2F1ED', fontSize: 13, lineHeight: 1.6, margin: '0 0 8px', whiteSpace: 'pre-wrap' }}>
+              {item.script ?? item.brief ?? ''}
+            </p>
+
+            {/* Render any media URLs found in brief/notes */}
+            {[item.video_url, item.image_url, item.audio_url].filter(Boolean).map((u, i) => (
+              <MediaBlock key={i} url={u} />
+            ))}
+
+            {item.qa_status === 'fail' && item.qa_reason && (
+              <div style={{ color: '#FF4444', fontSize: 12, margin: '8px 0', padding: '6px 10px', borderRight: '2px solid #FF4444', background: '#1a1010', borderRadius: 4 }}>
                 {item.qa_reason}
-              </p>
+                {item.qa_issues?.length > 0 && <div style={{ marginTop: 3 }}>{item.qa_issues.join(' · ')}</div>}
+              </div>
             )}
 
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-start' }}>
-              <button
-                onClick={() => act(item.id, 'approve')}
-                disabled={!!acting[item.id]}
-                style={{ background: '#1a2e1a', border: '1px solid #4CAF50', color: '#4CAF50', borderRadius: 5, padding: '5px 16px', fontSize: 12, cursor: 'pointer', fontWeight: 600 }}
-              >
-                {acting[item.id] === 'approve' ? '…' : '✓ אשר'}
-              </button>
-              <button
-                onClick={() => act(item.id, 'reject')}
-                disabled={!!acting[item.id]}
-                style={{ background: '#1a1010', border: '1px solid #8B8A85', color: '#8B8A85', borderRadius: 5, padding: '5px 16px', fontSize: 12, cursor: 'pointer' }}
-              >
-                {acting[item.id] === 'reject' ? '…' : '✗ דחה'}
-              </button>
-            </div>
+            {isPending && channel === 'vovax' && (
+              <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                <button onClick={() => act(item.id, 'vovax', 'approve')} disabled={!!isActing}
+                  style={{ background: '#1a2e1a', border: '1px solid #4CAF50', color: '#4CAF50', borderRadius: 5, padding: '6px 20px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+                  {isActing === 'approve' ? '…' : '✓ אשר'}
+                </button>
+                <button onClick={() => act(item.id, 'vovax', 'reject')} disabled={!!isActing}
+                  style={{ background: '#1a1010', border: '1px solid #555', color: '#8B8A85', borderRadius: 5, padding: '6px 20px', fontSize: 12, cursor: 'pointer' }}>
+                  {isActing === 'reject' ? '…' : '✗ דחה'}
+                </button>
+              </div>
+            )}
+            {isPending && channel === 'signal' && (
+              <div style={{ marginTop: 10 }}>
+                <span style={{ color: '#555', fontSize: 11 }}>Signal — ממתין לאישור (תצוגה בלבד בממשק זה)</span>
+              </div>
+            )}
           </div>
         );
       })}
+      {items.length === 0 && deptData && (
+        <p style={{ color: '#4CAF50', fontSize: 13 }}>אין פריטים {tab === 'vovax' ? 'VOVAX' : 'Signal'} ✓</p>
+      )}
     </div>
   );
 }
 
-// ── Activity summary ──────────────────────────────────────────────────────────
+// ── Brand & Voice page ────────────────────────────────────────────────────────
 
-function ActivitySummary({ activity }) {
-  const grouped = {};
-  for (const row of activity) {
-    if (!grouped[row.channel]) grouped[row.channel] = {};
-    grouped[row.channel][row.status] = row.cnt;
-  }
-  if (Object.keys(grouped).length === 0) {
-    return <p style={{ color: '#8B8A85', fontSize: 13 }}>אין פעילות היום</p>;
-  }
+function BrandPage({ employees }) {
+  const [deptData, setDeptData] = useState(null);
+
+  useEffect(() => {
+    fetch(`${API}/api/admin/dept/brand`, { headers: authHdr() })
+      .then(r => r.ok ? r.json() : null).then(setDeptData);
+  }, []);
+
+  const qa = deptData?.qa ?? [];
+  const passed = qa.filter(r => r.qa_status === 'pass').length;
+  const failed = qa.filter(r => r.qa_status === 'fail').length;
+
   return (
-    <div style={{ marginBottom: 4 }}>
-      {Object.entries(grouped).map(([ch, statuses]) => (
-        <div key={ch} dir="rtl" style={{ marginBottom: 6 }}>
-          <span style={{ color: '#F2F1ED', fontSize: 13, fontWeight: 600 }}>{CH[ch] ?? ch}: </span>
-          {Object.entries(statuses).map(([st, cnt]) => (
-            <span key={st} style={{ color: ST_CLR[st] ?? '#F2F1ED', fontSize: 13, marginLeft: 10 }}>
-              {cnt} {st}
-            </span>
-          ))}
+    <div dir="rtl" style={{ padding: '24px 28px' }}>
+      <h1 style={{ color: '#F2F1ED', fontSize: 20, margin: '0 0 4px' }}>🔊 מותג וקול</h1>
+      <p style={{ color: '#555', fontSize: 12, margin: '0 0 20px' }}>{employees.length} עובדים — שירה (מנהלת)</p>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 8, marginBottom: 24 }}>
+        {employees.map(e => (
+          <div key={e.id} style={{ background: '#131316', border: '1px solid #1a1a1d', borderRadius: 8, padding: '12px 14px' }}>
+            <div style={{ color: '#F2F1ED', fontSize: 13, fontWeight: 600 }}>{e.name}</div>
+            <div style={{ color: '#555', fontSize: 11 }}>{e.role}</div>
+            {e.id === 'yuval' && <div style={{ color: '#46C7FF', fontSize: 10, marginTop: 2 }}>QA לכל הצינורות</div>}
+          </div>
+        ))}
+      </div>
+
+      <h2 style={{ color: '#8B8A85', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.1em', margin: '0 0 12px' }}>
+        היסטוריית QA — {passed} עברו · {failed} נכשלו
+      </h2>
+
+      {!deptData && <p style={{ color: '#555', fontSize: 13 }}>טוען…</p>}
+      {qa.length === 0 && deptData && <p style={{ color: '#555', fontSize: 13 }}>אין נתוני QA</p>}
+
+      {qa.map(r => (
+        <div key={r.id} style={{ background: '#131316', border: `1px solid ${r.qa_status === 'fail' ? '#2a1010' : '#1a1d1a'}`, borderRadius: 8, padding: '10px 14px', marginBottom: 8 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <QaChip status={r.qa_status} reason={r.qa_reason} />
+              <span style={{ color: '#F2F1ED', fontSize: 12, fontWeight: 600 }}>{r.topic}</span>
+              <span style={{ color: '#555', fontSize: 11 }}>{r.channel === 'vovax' ? 'VOVAX' : 'Signal'}</span>
+            </div>
+            <span style={{ color: '#555', fontSize: 11 }}>{fmtDate(r.qa_at)}</span>
+          </div>
+          {r.qa_reason && <div style={{ color: r.qa_status === 'fail' ? '#FF4444' : '#4CAF50', fontSize: 12 }}>{r.qa_reason}</div>}
+          {r.qa_issues?.length > 0 && <div style={{ color: '#FF6644', fontSize: 11, marginTop: 2 }}>{r.qa_issues.join(' · ')}</div>}
+          <div style={{ color: '#333', fontSize: 11, marginTop: 4 }}>"{(r.script ?? '').slice(0, 80)}…"</div>
         </div>
       ))}
     </div>
   );
 }
 
-// ── QA section ────────────────────────────────────────────────────────────────
+// ── Distribution page ─────────────────────────────────────────────────────────
 
-function QaSection({ qaToday }) {
-  if (qaToday.length === 0) return <p style={{ color: '#8B8A85', fontSize: 13 }}>לא הורץ QA היום</p>;
-  const passed = qaToday.filter(r => r.qa_status === 'pass').length;
-  const failed = qaToday.filter(r => r.qa_status === 'fail').length;
+function DistributionPage({ employees }) {
+  const [deptData, setDeptData] = useState(null);
+
+  useEffect(() => {
+    fetch(`${API}/api/admin/dept/distribution`, { headers: authHdr() })
+      .then(r => r.ok ? r.json() : null).then(setDeptData);
+  }, []);
+
+  const tracks = deptData?.tracks ?? [];
+
   return (
-    <div dir="rtl">
-      <p style={{ margin: '0 0 8px', fontSize: 13 }}>
-        <span style={{ color: '#4CAF50' }}>{passed} עברו ✓</span>
-        {'  '}
-        <span style={{ color: '#FF4444' }}>{failed} נכשלו ✗</span>
-        {'  '}
-        <span style={{ color: '#8B8A85' }}>— יובל</span>
+    <div dir="rtl" style={{ padding: '24px 28px' }}>
+      <h1 style={{ color: '#F2F1ED', fontSize: 20, margin: '0 0 4px' }}>📡 הפצה</h1>
+      <p style={{ color: '#555', fontSize: 12, margin: '0 0 20px' }}>{employees.length} עובדים — אורי (מנהל)</p>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 24 }}>
+        {employees.map(e => (
+          <div key={e.id} style={{ background: '#131316', border: '1px solid #1a1a1d', borderRadius: 8, padding: '12px 14px' }}>
+            <div style={{ color: '#F2F1ED', fontSize: 13, fontWeight: 600 }}>{e.name}</div>
+            <div style={{ color: '#555', fontSize: 11 }}>{e.role}</div>
+          </div>
+        ))}
+      </div>
+
+      <h2 style={{ color: '#8B8A85', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.1em', margin: '0 0 12px' }}>
+        מאגר טראקים — {tracks.length} אחרונים
+      </h2>
+      {!deptData && <p style={{ color: '#555', fontSize: 13 }}>טוען…</p>}
+      {tracks.map(t => (
+        <div key={t.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 0', borderBottom: '1px solid #1a1a1d', fontSize: 13 }}>
+          <span style={{ color: '#F2F1ED' }}>{t.title}</span>
+          <span style={{ color: '#555', fontSize: 11 }}>{t.genre ?? ''}{t.bpm ? ` · ${t.bpm} BPM` : ''} · {fmtDate(t.created_at)}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Music page ────────────────────────────────────────────────────────────────
+
+function MusicPage({ employees }) {
+  const [deptData, setDeptData] = useState(null);
+
+  useEffect(() => {
+    fetch(`${API}/api/admin/dept/music`, { headers: authHdr() })
+      .then(r => r.ok ? r.json() : null).then(setDeptData);
+  }, []);
+
+  const tracks = deptData?.tracks ?? [];
+
+  return (
+    <div dir="rtl" style={{ padding: '24px 28px' }}>
+      <h1 style={{ color: '#F2F1ED', fontSize: 20, margin: '0 0 4px' }}>🎵 יצירת מוזיקה</h1>
+      <p style={{ color: '#555', fontSize: 12, margin: '0 0 20px' }}>{employees.length} עובדים — עמית (מנהל)</p>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 8, marginBottom: 24 }}>
+        {employees.map(e => (
+          <div key={e.id} style={{ background: '#131316', border: '1px solid #1a1a1d', borderRadius: 8, padding: '10px 12px' }}>
+            <div style={{ color: '#F2F1ED', fontSize: 12, fontWeight: 600 }}>{e.name}</div>
+            <div style={{ color: '#555', fontSize: 11 }}>{e.role}</div>
+            {e.manager && <div style={{ color: '#333', fontSize: 10 }}>← {e.manager}</div>}
+          </div>
+        ))}
+      </div>
+
+      <h2 style={{ color: '#8B8A85', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.1em', margin: '0 0 12px' }}>
+        טראקים אחרונים — {tracks.length}
+      </h2>
+      {!deptData && <p style={{ color: '#555', fontSize: 13 }}>טוען…</p>}
+      {tracks.map(t => (
+        <div key={t.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 0', borderBottom: '1px solid #1a1a1d', fontSize: 13 }}>
+          <span style={{ color: '#F2F1ED' }}>{t.title}</span>
+          <span style={{ color: '#555', fontSize: 11 }}>{t.genre ?? ''}{t.bpm ? ` · ${t.bpm} BPM` : ''}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Generic department page ───────────────────────────────────────────────────
+
+function GenericDeptPage({ deptKey, employees }) {
+  const meta = DEPT_META_FALLBACK[deptKey] ?? { label: deptKey, icon: '📁' };
+  const manager = employees.find(e => !e.manager);
+
+  return (
+    <div dir="rtl" style={{ padding: '24px 28px' }}>
+      <h1 style={{ color: '#F2F1ED', fontSize: 20, margin: '0 0 4px' }}>{meta.icon} {meta.label}</h1>
+      <p style={{ color: '#555', fontSize: 12, margin: '0 0 20px' }}>
+        {employees.length} עובדים{manager ? ` — ${manager.name} (מנהל)` : ''}
       </p>
-      {qaToday.filter(r => r.qa_status === 'fail').map(r => (
-        <div key={r.id} style={{ background: '#1a1010', border: '1px solid #2a1a1a', borderRadius: 6, padding: '8px 10px', marginBottom: 6 }}>
-          <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 3 }}>
-            <span style={{ color: '#FF4444' }}>✗ </span>
-            <span style={{ color: '#F2F1ED' }}>{CH[r.channel] ?? r.channel} · {r.topic}</span>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 8, marginBottom: 24 }}>
+        {employees.map(e => (
+          <div key={e.id} style={{ background: '#131316', border: '1px solid #1a1a1d', borderRadius: 8, padding: '12px 14px' }}>
+            <div style={{ color: '#F2F1ED', fontSize: 13, fontWeight: 600 }}>{e.name}</div>
+            <div style={{ color: '#555', fontSize: 11 }}>{e.role}</div>
+            {e.manager && <div style={{ color: '#333', fontSize: 10 }}>← {e.manager}</div>}
           </div>
-          <div style={{ color: '#8B8A85', fontSize: 12 }}>"{(r.script ?? '').slice(0, 80)}…"</div>
-          {r.qa_issues?.length > 0 && (
-            <div style={{ color: '#FF4444', fontSize: 11, marginTop: 4 }}>{r.qa_issues.join(' · ')}</div>
-          )}
-        </div>
-      ))}
+        ))}
+      </div>
+
+      <div style={{ background: '#131316', border: '1px solid #1a1a1d', borderRadius: 8, padding: '14px 16px' }}>
+        <p style={{ color: '#555', fontSize: 13, margin: 0 }}>אין אינטגרציה עם Backend עדיין — תצוגת עובדים בלבד.</p>
+      </div>
     </div>
   );
 }
 
-// ── Signal section (read-only) ────────────────────────────────────────────────
+// ── Global Chat page ──────────────────────────────────────────────────────────
 
-function SignalSection({ items }) {
-  if (items.length === 0) return <p style={{ color: '#8B8A85', fontSize: 13 }}>אין פוסטים אחרונים</p>;
-  return (
-    <div dir="rtl">
-      {items.map(item => {
-        const qa = item.qa_status;
-        const qaLabel = qa === 'pass' ? <span style={{ color: '#4CAF50', fontSize: 11 }}>✓</span>
-          : qa === 'fail' ? <span style={{ color: '#FF4444', fontSize: 11 }} title={item.qa_reason}>✗</span>
-          : <span style={{ color: '#8B8A85', fontSize: 11 }}>⏳</span>;
-        return (
-          <div key={item.id} style={{ borderBottom: '1px solid #232326', padding: '8px 0', fontSize: 13 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
-              <span style={{ color: '#8B8A85' }}>{item.topic} {qaLabel}</span>
-              <span style={{ color: '#8B8A85', fontSize: 11 }}>{fmtTime(item.created_at)}</span>
-            </div>
-            <span style={{ color: item.status === 'published' ? '#4CAF50' : item.status === 'approved' ? '#46C7FF' : '#F2F1ED' }}>
-              "{(item.script ?? '').slice(0, 90)}{item.script?.length > 90 ? '…' : ''}"
-            </span>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-// ── Deploys section ───────────────────────────────────────────────────────────
-
-function DeploysSection({ deploys }) {
-  if (!deploys || deploys.length === 0) return <p style={{ color: '#8B8A85', fontSize: 13 }}>אין דפלויים ב-48 שעות האחרונות</p>;
-  return (
-    <div dir="rtl">
-      {deploys.map((d, i) => (
-        <div key={i} style={{ display: 'flex', gap: 10, fontSize: 13, marginBottom: 4, alignItems: 'baseline' }}>
-          <span style={{ color: DEPLOY_CLR[d.status] ?? '#8B8A85', minWidth: 80 }}>{DEPLOY_LABEL[d.status] ?? d.status}</span>
-          <span style={{ color: '#8B8A85', minWidth: 90, fontSize: 12 }}>{fmtDeployTime(d.createdAt)}</span>
-          {d.reason && <span style={{ color: '#8B8A85', fontSize: 11 }}>({d.reason})</span>}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-// ── Chat panel ────────────────────────────────────────────────────────────────
-
-function ChatPanel() {
-  const [messages, setMessages] = useState([]);
-  const [input, setInput] = useState('');
-  const [employee, setEmployee] = useState('');
-  const [loading, setLoading] = useState(false);
+function ChatPage({ allEmployees, initialEmployee }) {
+  const [messages,    setMessages]    = useState([]);
+  const [input,       setInput]       = useState('');
+  const [employeeId,  setEmployeeId]  = useState(initialEmployee ?? '');
+  const [loading,     setLoading]     = useState(false);
   const bottomRef = useRef(null);
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
+  useEffect(() => { if (initialEmployee) setEmployeeId(initialEmployee); }, [initialEmployee]);
 
   async function send() {
     const msg = input.trim();
@@ -290,68 +620,80 @@ function ChatPanel() {
     setLoading(true);
     try {
       const r = await fetch(`${API}/api/admin/chat`, {
-        method: 'POST',
-        headers: authHeaders(),
-        body: JSON.stringify({ message: msg, employee: employee || undefined }),
+        method: 'POST', headers: authHdr(),
+        body: JSON.stringify({ message: msg, employeeId: employeeId || undefined }),
       });
-      const data = await r.json();
-      setMessages(m => [...m, { role: 'assistant', text: data.response ?? data.error ?? 'שגיאה', employee }]);
+      const d = await r.json();
+      setMessages(m => [...m, { role: 'assistant', text: d.response ?? d.error ?? 'שגיאה', employeeId }]);
     } catch {
-      setMessages(m => [...m, { role: 'assistant', text: 'שגיאת חיבור', employee }]);
+      setMessages(m => [...m, { role: 'assistant', text: 'שגיאת חיבור', employeeId }]);
     }
     setLoading(false);
   }
 
-  const empLabel = EMPLOYEES.find(e => e.id === employee)?.label ?? 'כללי';
+  const withSkill  = allEmployees.filter(e => e.skillFile);
+  const noSkill    = allEmployees.filter(e => !e.skillFile);
+  const activeEmp  = allEmployees.find(e => e.id === employeeId);
 
   return (
-    <div dir="rtl">
-      <div style={{ minHeight: 120, maxHeight: 320, overflowY: 'auto', marginBottom: 10 }}>
+    <div dir="rtl" style={{ padding: '24px 28px', maxWidth: 680, margin: '0 auto' }}>
+      <h1 style={{ color: '#F2F1ED', fontSize: 20, margin: '0 0 4px' }}>💬 שיחה עם הצוות</h1>
+      <p style={{ color: '#555', fontSize: 12, margin: '0 0 20px' }}>כל {allEmployees.length} עובדים זמינים — עובדים עם SKILL.md מגיבים בתפקיד</p>
+
+      {/* Employee selector */}
+      <div style={{ marginBottom: 16 }}>
+        <select value={employeeId} onChange={e => setEmployeeId(e.target.value)}
+          style={{ width: '100%', background: '#131316', border: '1px solid #232326', color: employeeId ? '#F2F1ED' : '#8B8A85', borderRadius: 6, padding: '8px 10px', fontSize: 13 }}>
+          <option value=''>כללי — VOVAX System Context</option>
+          <optgroup label="עם SKILL.md (מגיב בתפקיד)">
+            {withSkill.map(e => <option key={e.id} value={e.id}>{e.name} — {e.role}</option>)}
+          </optgroup>
+          <optgroup label="ללא SKILL.md (VOVAX context כללי)">
+            {noSkill.map(e => <option key={e.id} value={e.id}>{e.name} — {e.role}</option>)}
+          </optgroup>
+        </select>
+        {activeEmp && (
+          <div style={{ color: '#555', fontSize: 11, padding: '4px 2px' }}>
+            {activeEmp.skillFile ? `✓ SKILL.md טעון — ${activeEmp.name} מגיב בתפקיד` : `מגיב עם context כללי — אין SKILL.md ל${activeEmp.name}`}
+          </div>
+        )}
+      </div>
+
+      {/* Messages */}
+      <div style={{ minHeight: 200, maxHeight: 420, overflowY: 'auto', marginBottom: 12, borderTop: '1px solid #1a1a1d', paddingTop: 12 }}>
         {messages.length === 0 && (
-          <p style={{ color: '#8B8A85', fontSize: 13 }}>שאל שאלה על המערכת, הטיוטות, הטראקים, או הפנה לעובד ספציפי…</p>
+          <p style={{ color: '#555', fontSize: 13 }}>בחר עובד ושאל שאלה…</p>
         )}
         {messages.map((m, i) => (
-          <div key={i} style={{ marginBottom: 12 }}>
+          <div key={i} style={{ marginBottom: 14 }}>
             {m.role === 'user' ? (
               <div style={{ textAlign: 'right' }}>
-                <span style={{ background: '#131316', border: '1px solid #232326', borderRadius: 8, padding: '6px 12px', display: 'inline-block', fontSize: 13, color: '#F2F1ED' }}>
+                <span style={{ background: '#18181C', border: '1px solid #232326', borderRadius: 8, padding: '7px 12px', display: 'inline-block', fontSize: 13, color: '#F2F1ED' }}>
                   {m.text}
                 </span>
               </div>
             ) : (
               <div>
-                <div style={{ color: '#46C7FF', fontSize: 10, marginBottom: 2 }}>
-                  {m.employee ? EMPLOYEES.find(e => e.id === m.employee)?.label : 'VOVAX System'}
+                <div style={{ color: '#46C7FF', fontSize: 10, marginBottom: 3 }}>
+                  {m.employeeId ? (allEmployees.find(e => e.id === m.employeeId)?.name ?? m.employeeId) : 'VOVAX System'}
                 </div>
                 <div style={{ color: '#F2F1ED', fontSize: 13, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{m.text}</div>
               </div>
             )}
           </div>
         ))}
-        {loading && <p style={{ color: '#8B8A85', fontSize: 12 }}>…</p>}
+        {loading && <p style={{ color: '#555', fontSize: 12 }}>…</p>}
         <div ref={bottomRef} />
       </div>
 
-      <div style={{ display: 'flex', gap: 6 }}>
-        <select
-          value={employee}
-          onChange={e => setEmployee(e.target.value)}
-          style={{ background: '#131316', border: '1px solid #232326', color: '#8B8A85', borderRadius: 6, padding: '6px 8px', fontSize: 12 }}
-        >
-          {EMPLOYEES.map(e => <option key={e.id} value={e.id}>{e.label}</option>)}
-        </select>
-        <input
-          value={input}
-          onChange={e => setInput(e.target.value)}
+      {/* Input */}
+      <div style={{ display: 'flex', gap: 8 }}>
+        <input value={input} onChange={e => setInput(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && !e.shiftKey && send()}
           placeholder="שאל שאלה…"
-          style={{ flex: 1, background: '#131316', border: '1px solid #232326', borderRadius: 6, color: '#F2F1ED', padding: '6px 10px', fontSize: 13 }}
-        />
-        <button
-          onClick={send}
-          disabled={loading}
-          style={{ background: '#46C7FF', color: '#0A0A0C', border: 'none', borderRadius: 6, padding: '6px 16px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}
-        >
+          style={{ flex: 1, background: '#131316', border: '1px solid #232326', borderRadius: 6, color: '#F2F1ED', padding: '8px 12px', fontSize: 13 }} />
+        <button onClick={send} disabled={loading}
+          style={{ background: '#46C7FF', color: '#0A0A0C', border: 'none', borderRadius: 6, padding: '8px 18px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
           שלח
         </button>
       </div>
@@ -359,22 +701,24 @@ function ChatPanel() {
   );
 }
 
-// ── Main Admin page ───────────────────────────────────────────────────────────
+// ── Main ──────────────────────────────────────────────────────────────────────
 
 export default function Admin() {
-  const [authed, setAuthed] = useState(!!token());
-  const [data, setData] = useState(null);
-  const [lastRefresh, setLastRefresh] = useState(null);
+  const [authed,     setAuthed]     = useState(!!getToken());
+  const [page,       setPage]       = useState('overview');
+  const [data,       setData]       = useState(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [chatEmp,    setChatEmp]    = useState('');
 
   const load = useCallback(async () => {
-    if (!token()) return;
+    if (!getToken()) return;
     setRefreshing(true);
     try {
-      const r = await fetch(`${API}/api/admin/dashboard`, { headers: authHeaders() });
+      const r = await fetch(`${API}/api/admin/dashboard`, { headers: authHdr() });
       if (r.status === 401) { localStorage.removeItem(TOKEN_KEY); setAuthed(false); return; }
-      setData(await r.json());
-      setLastRefresh(new Date());
+      // also fetch track count separately since dashboard doesn't include it
+      const d = await r.json();
+      setData(d);
     } catch {}
     setRefreshing(false);
   }, []);
@@ -383,76 +727,39 @@ export default function Admin() {
     if (authed) { load(); const t = setInterval(load, 30000); return () => clearInterval(t); }
   }, [authed, load]);
 
-  if (!authed) return <LoginScreen onLogin={() => { setAuthed(true); }} />;
+  function openChat(empId) { setChatEmp(empId); setPage('chat'); }
 
-  const pending = data?.pending ?? [];
-  const pendingCount = pending.length;
+  if (!authed) return <LoginScreen onLogin={() => { setAuthed(true); load(); }} />;
+
+  const allEmployees = data?.employees ?? [];
+  const deptKey = page.startsWith('dept/') ? page.slice(5) : null;
+  const deptEmployees = deptKey ? allEmployees.filter(e => e.dept === deptKey) : [];
+
+  function renderPage() {
+    if (page === 'overview')       return <OverviewPage data={data} setPage={setPage} />;
+    if (page === 'chat')           return <ChatPage allEmployees={allEmployees} initialEmployee={chatEmp} />;
+    if (!deptKey)                  return <OverviewPage data={data} setPage={setPage} />;
+    if (deptKey === 'publishing')  return <PublishingPage employees={deptEmployees} onAction={load} />;
+    if (deptKey === 'brand')       return <BrandPage employees={deptEmployees} />;
+    if (deptKey === 'distribution') return <DistributionPage employees={deptEmployees} />;
+    if (deptKey === 'music')       return <MusicPage employees={deptEmployees} />;
+    return <GenericDeptPage deptKey={deptKey} employees={deptEmployees} />;
+  }
 
   return (
-    <div dir="rtl" style={{ minHeight: '100vh', background: '#0A0A0C', color: '#F2F1ED', fontFamily: "'Helvetica Neue', Arial, sans-serif" }}>
-      {/* Header */}
-      <div style={{ borderBottom: '1px solid #232326', background: '#0D0D10', padding: '0 24px', display: 'flex', alignItems: 'center', height: 48, position: 'sticky', top: 0, zIndex: 10 }}>
-        <span style={{ color: '#46C7FF', fontSize: 12, fontWeight: 700, letterSpacing: '0.15em' }}>VOVAX</span>
-        <span style={{ color: '#8B8A85', fontSize: 12, marginRight: 10 }}>Command Center</span>
-        {pendingCount > 0 && (
-          <span style={{ background: '#FF4444', color: '#fff', fontSize: 10, fontWeight: 700, borderRadius: 10, padding: '1px 7px', marginRight: 8 }}>
-            {pendingCount}
-          </span>
-        )}
-        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 12 }}>
-          {lastRefresh && (
-            <span style={{ color: '#8B8A85', fontSize: 10 }}>
-              עודכן {lastRefresh.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}
-              {refreshing && ' ↻'}
-            </span>
-          )}
-          <button onClick={load} style={{ background: 'none', border: '1px solid #232326', color: '#8B8A85', borderRadius: 4, padding: '2px 8px', fontSize: 11, cursor: 'pointer' }}>
-            רענן
-          </button>
-          <button onClick={() => { localStorage.removeItem(TOKEN_KEY); setAuthed(false); }}
-            style={{ background: 'none', border: 'none', color: '#8B8A85', fontSize: 11, cursor: 'pointer' }}>
-            יציאה
-          </button>
-        </div>
-      </div>
-
-      {/* Content */}
-      <div style={{ maxWidth: 640, margin: '0 auto', padding: '24px 20px' }}>
-        {!data && (
-          <p style={{ color: '#8B8A85', fontSize: 13 }}>טוען…</p>
-        )}
-
-        {data && <>
-          {/* Pending VOVAX */}
-          <SectionHeader>
-            ממתין לאישורך
-            {pendingCount > 0
-              ? <span style={{ color: '#FFB347', marginRight: 6 }}> — {pendingCount} {pendingCount === 1 ? 'טיוטה' : 'טיוטות'}</span>
-              : <span style={{ color: '#4CAF50', marginRight: 6 }}> — הכל נקי ✓</span>
-            }
-          </SectionHeader>
-          <PendingQueue items={pending} onAction={load} />
-
-          {/* Activity */}
-          <SectionHeader>פעילות היום</SectionHeader>
-          <ActivitySummary activity={data.activity} />
-
-          {/* QA */}
-          <SectionHeader>QA היום — <span style={{ color: '#46C7FF' }}>{data.qaToday?.length ?? 0}</span> בדיקות</SectionHeader>
-          <QaSection qaToday={data.qaToday ?? []} />
-
-          {/* Signal (read-only) */}
-          <SectionHeader>Signal Detected — אחרונים (תצוגה בלבד)</SectionHeader>
-          <SignalSection items={data.signal ?? []} />
-
-          {/* Deploys */}
-          <SectionHeader>Railway — 48 שעות אחרונות</SectionHeader>
-          <DeploysSection deploys={data.deploys} />
-
-          {/* Chat */}
-          <SectionHeader>שיחה עם הצוות</SectionHeader>
-          <ChatPanel />
-        </>}
+    <div style={{ display: 'flex', minHeight: '100vh', background: '#0A0A0C', color: '#F2F1ED', fontFamily: "'Helvetica Neue', Arial, sans-serif" }}>
+      <Sidebar
+        page={page}
+        setPage={(p) => { setChatEmp(''); setPage(p); }}
+        data={data}
+        onLogout={() => { localStorage.removeItem(TOKEN_KEY); setAuthed(false); }}
+        onRefresh={load}
+        refreshing={refreshing}
+      />
+      <div style={{ flex: 1, overflowY: 'auto' }}>
+        {!data ? (
+          <div style={{ padding: 40, color: '#555', fontSize: 13 }}>טוען…</div>
+        ) : renderPage()}
       </div>
     </div>
   );
