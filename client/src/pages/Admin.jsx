@@ -316,12 +316,48 @@ function MediaBlock({ url }) {
 
 // ── Publishing department page ────────────────────────────────────────────────
 
-function PublishingPage({ employees, onAction }) {
-  const [deptData, setDeptData] = useState(null);
-  const [acting, setActing]     = useState({});
-  const [tab, setTab]           = useState('vovax');
+function RejectModal({ item, onConfirm, onCancel }) {
+  const [reason, setReason] = useState('');
+  const [busy,   setBusy]   = useState(false);
 
-  const [loadErr, setLoadErr] = useState('');
+  async function confirm() {
+    setBusy(true);
+    await onConfirm(item.id, reason);
+    setBusy(false);
+  }
+
+  return (
+    <div style={{ marginTop: 10, background: '#1a1010', border: '1px solid #3a1a1a', borderRadius: 8, padding: '12px 14px' }}>
+      <p style={{ color: '#FF4444', fontSize: 12, margin: '0 0 8px' }}>דחייה + חידוש אוטומטי — ורסיה חדשה תוגש ל-HeyGen עם אותו טראק ונושא.</p>
+      <textarea
+        value={reason}
+        onChange={e => setReason(e.target.value)}
+        placeholder="סיבת דחייה (אופציונלי)…"
+        rows={2}
+        style={{ width: '100%', background: '#131316', border: '1px solid #2a1a1a', borderRadius: 5, color: '#F2F1ED', padding: '6px 10px', fontSize: 12, resize: 'none', boxSizing: 'border-box' }}
+      />
+      <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+        <button onClick={confirm} disabled={busy}
+          style={{ background: '#2a0a0a', border: '1px solid #FF4444', color: '#FF4444', borderRadius: 5, padding: '5px 16px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+          {busy ? '…' : '✗ אשר דחייה + חדש'}
+        </button>
+        <button onClick={onCancel}
+          style={{ background: 'none', border: '1px solid #333', color: '#555', borderRadius: 5, padding: '5px 12px', fontSize: 12, cursor: 'pointer' }}>
+          ביטול
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function PublishingPage({ employees, onAction }) {
+  const [deptData,   setDeptData]   = useState(null);
+  const [approving,  setApproving]  = useState({});
+  const [rejectOpen, setRejectOpen] = useState({});
+  const [regen,      setRegen]      = useState({});
+  const [tab,        setTab]        = useState('vovax');
+  const [loadErr,    setLoadErr]    = useState('');
+
   const load = useCallback(async () => {
     try {
       const r = await fetch(`${API}/api/admin/dept/publishing`, { headers: authHdr() });
@@ -331,19 +367,38 @@ function PublishingPage({ employees, onAction }) {
     } catch (e) { setLoadErr(e.message); }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+    // Poll every 15s so rendering items flip to pending automatically
+    const t = setInterval(load, 15000);
+    return () => clearInterval(t);
+  }, [load]);
 
-  async function act(id, channel, action) {
-    setActing(a => ({ ...a, [id]: action }));
-    await fetch(`${API}/api/publish/${channel}/${id}/${action}`, { method: 'POST', headers: authHdr() });
+  async function approve(id) {
+    setApproving(a => ({ ...a, [id]: true }));
+    await fetch(`${API}/api/publish/vovax/${id}/approve`, { method: 'POST', headers: authHdr() });
     await load();
     onAction();
-    setActing(a => ({ ...a, [id]: null }));
+    setApproving(a => ({ ...a, [id]: false }));
+  }
+
+  async function reject(id, reason) {
+    const r = await fetch(`${API}/api/publish/vovax/${id}/reject`, {
+      method: 'POST', headers: authHdr(),
+      body: JSON.stringify({ reason }),
+    });
+    const d = await r.json();
+    setRejectOpen(o => ({ ...o, [id]: false }));
+    if (d.regenerated) setRegen(rg => ({ ...rg, [id]: d.regenerated }));
+    await load();
+    onAction();
   }
 
   const vovax  = deptData?.vovax  ?? [];
   const signal = deptData?.signal ?? [];
   const items  = tab === 'vovax' ? vovax : signal;
+
+  const renderingCount = vovax.filter(i => i.status === 'rendering').length;
 
   const tabBtn = (key, label, count) => (
     <button onClick={() => setTab(key)}
@@ -357,7 +412,6 @@ function PublishingPage({ employees, onAction }) {
       <h1 style={{ color: '#F2F1ED', fontSize: 20, margin: '0 0 4px' }}>📢 פרסום אוטומטי</h1>
       <p style={{ color: '#555', fontSize: 12, margin: '0 0 20px' }}>{employees.length} עובדים — אסף (מנהל)</p>
 
-      {/* Employee grid */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 8, marginBottom: 24 }}>
         {employees.map(e => (
           <div key={e.id} style={{ background: '#131316', border: '1px solid #1a1a1d', borderRadius: 8, padding: '10px 12px' }}>
@@ -367,10 +421,14 @@ function PublishingPage({ employees, onAction }) {
         ))}
       </div>
 
-      {/* Tabs */}
       <div style={{ borderBottom: '1px solid #1a1a1d', marginBottom: 16 }}>
-        {tabBtn('vovax',  'VOVAX',           vovax.filter(i  => i.status  === 'pending').length)}
+        {tabBtn('vovax',  'VOVAX',           vovax.filter(i => i.status === 'pending').length)}
         {tabBtn('signal', 'Signal Detected', signal.filter(i => i.status === 'pending').length)}
+        {renderingCount > 0 && (
+          <span style={{ fontSize: 11, color: '#46C7FF', marginRight: 12, verticalAlign: 'middle' }}>
+            ⏳ {renderingCount} מתייצרים ב-HeyGen…
+          </span>
+        )}
       </div>
 
       {loadErr && <p style={{ color: '#FF4444', fontSize: 13 }}>שגיאה: {loadErr}</p>}
@@ -378,61 +436,126 @@ function PublishingPage({ employees, onAction }) {
 
       {items.map(item => {
         const isPending  = item.status === 'pending';
+        const isRendering = item.status === 'rendering';
         const channel    = tab;
-        const isActing   = acting[item.id];
+        const regenInfo  = regen[item.id];
+
         return (
-          <div key={item.id} style={{ background: '#131316', border: `1px solid ${isPending ? '#2a2010' : '#1a1a1d'}`, borderRadius: 10, padding: '14px 16px', marginBottom: 12 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+          <div key={item.id} style={{ background: '#0f0f12', border: `1px solid ${isPending && item.video_url ? '#1a2e1a' : isPending ? '#2a2010' : '#1a1a1d'}`, borderRadius: 10, padding: '14px 16px', marginBottom: 16 }}>
+
+            {/* Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                 <span style={{ color: '#F2F1ED', fontWeight: 600, fontSize: 14 }}>{item.topic}</span>
                 <StatusChip status={item.status} />
                 <QaChip status={item.qa_status} reason={item.qa_reason} />
+                {item.regenerated_from && (
+                  <span style={{ fontSize: 10, color: '#46C7FF', border: '1px solid #46C7FF', borderRadius: 4, padding: '1px 6px' }}>
+                    חידוש #{item.rejection_count ?? 1}
+                  </span>
+                )}
               </div>
               <span style={{ color: '#555', fontSize: 11, whiteSpace: 'nowrap' }}>{fmtDate(item.created_at)}</span>
             </div>
 
+            {/* Track */}
             {item.track_title && (
-              <p style={{ color: '#8B8A85', fontSize: 12, margin: '0 0 8px' }}>
+              <p style={{ color: '#8B8A85', fontSize: 12, margin: '0 0 10px' }}>
                 🎵 {item.track_title}{item.track_genre ? ` · ${item.track_genre}` : ''}
               </p>
             )}
 
-            <p style={{ color: '#F2F1ED', fontSize: 13, lineHeight: 1.6, margin: '0 0 8px', whiteSpace: 'pre-wrap' }}>
-              {item.script ?? item.brief ?? ''}
+            {/* Rendering spinner */}
+            {isRendering && (
+              <div style={{ background: '#131316', border: '1px solid #1a2a3a', borderRadius: 8, padding: '16px', textAlign: 'center', margin: '0 0 10px' }}>
+                <div style={{ color: '#46C7FF', fontSize: 13, marginBottom: 4 }}>⏳ HeyGen מייצר וידאו…</div>
+                <div style={{ color: '#555', fontSize: 11 }}>יעודכן אוטומטית כשיסיים (בד"כ 3–8 דקות)</div>
+                <div style={{ color: '#555', fontSize: 11, marginTop: 4 }}>
+                  job: <code style={{ color: '#8B8A85' }}>{item.heygen_video_id}</code>
+                </div>
+              </div>
+            )}
+
+            {/* Finished video — shown prominently BEFORE approve/reject */}
+            {item.video_url && (
+              <div style={{ margin: '0 0 12px', borderRadius: 10, overflow: 'hidden', background: '#000', maxWidth: 320 }}>
+                <video
+                  controls
+                  preload="metadata"
+                  src={item.video_url}
+                  style={{ width: '100%', display: 'block', maxHeight: 480 }}
+                />
+              </div>
+            )}
+
+            {/* Script text — always shown */}
+            <p style={{ color: item.video_url ? '#8B8A85' : '#F2F1ED', fontSize: 13, lineHeight: 1.6, margin: '0 0 10px', whiteSpace: 'pre-wrap' }}>
+              "{item.script ?? ''}"
             </p>
 
-            {/* Render any media URLs found in brief/notes */}
-            {[item.video_url, item.image_url, item.audio_url].filter(Boolean).map((u, i) => (
-              <MediaBlock key={i} url={u} />
-            ))}
-
+            {/* QA failure detail */}
             {item.qa_status === 'fail' && item.qa_reason && (
-              <div style={{ color: '#FF4444', fontSize: 12, margin: '8px 0', padding: '6px 10px', borderRight: '2px solid #FF4444', background: '#1a1010', borderRadius: 4 }}>
+              <div style={{ color: '#FF4444', fontSize: 12, margin: '0 0 10px', padding: '6px 10px', borderRight: '2px solid #FF4444', background: '#1a1010', borderRadius: 4 }}>
                 {item.qa_reason}
                 {item.qa_issues?.length > 0 && <div style={{ marginTop: 3 }}>{item.qa_issues.join(' · ')}</div>}
               </div>
             )}
 
-            {isPending && channel === 'vovax' && (
-              <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-                <button onClick={() => act(item.id, 'vovax', 'approve')} disabled={!!isActing}
-                  style={{ background: '#1a2e1a', border: '1px solid #4CAF50', color: '#4CAF50', borderRadius: 5, padding: '6px 20px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
-                  {isActing === 'approve' ? '…' : '✓ אשר'}
-                </button>
-                <button onClick={() => act(item.id, 'vovax', 'reject')} disabled={!!isActing}
-                  style={{ background: '#1a1010', border: '1px solid #555', color: '#8B8A85', borderRadius: 5, padding: '6px 20px', fontSize: 12, cursor: 'pointer' }}>
-                  {isActing === 'reject' ? '…' : '✗ דחה'}
-                </button>
+            {/* Notes (rejection reason from prior version) */}
+            {item.notes && item.notes !== 'HeyGen render failed — text only' && (
+              <div style={{ color: '#555', fontSize: 11, margin: '0 0 10px', padding: '4px 8px', background: '#131316', borderRadius: 4 }}>
+                הערה: {item.notes}
               </div>
             )}
+
+            {/* Approve / Reject — VOVAX pending only, never on rendering items */}
+            {isPending && channel === 'vovax' && (
+              <>
+                <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                  <button
+                    onClick={() => approve(item.id)}
+                    disabled={approving[item.id]}
+                    style={{ background: '#1a2e1a', border: '1px solid #4CAF50', color: '#4CAF50', borderRadius: 5, padding: '7px 24px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}
+                  >
+                    {approving[item.id] ? '…' : '✓ אשר ופרסם'}
+                  </button>
+                  <button
+                    onClick={() => setRejectOpen(o => ({ ...o, [item.id]: !o[item.id] }))}
+                    disabled={approving[item.id]}
+                    style={{ background: '#1a1010', border: '1px solid #555', color: '#8B8A85', borderRadius: 5, padding: '7px 20px', fontSize: 13, cursor: 'pointer' }}
+                  >
+                    ✗ דחה
+                  </button>
+                </div>
+
+                {rejectOpen[item.id] && (
+                  <RejectModal
+                    item={item}
+                    onConfirm={reject}
+                    onCancel={() => setRejectOpen(o => ({ ...o, [item.id]: false }))}
+                  />
+                )}
+
+                {regenInfo && (
+                  <div style={{ marginTop: 10, padding: '8px 12px', background: '#0a1a0a', border: '1px solid #1a3a1a', borderRadius: 6, fontSize: 12 }}>
+                    <span style={{ color: '#4CAF50' }}>✓ מחולל מחדש — </span>
+                    <span style={{ color: '#555' }}>
+                      {regenInfo.status === 'rendering' ? 'HeyGen מייצר גרסה חדשה…' : 'גרסה חדשה נכנסה לתור'}
+                    </span>
+                  </div>
+                )}
+              </>
+            )}
+
             {isPending && channel === 'signal' && (
-              <div style={{ marginTop: 10 }}>
-                <span style={{ color: '#555', fontSize: 11 }}>Signal — ממתין לאישור (תצוגה בלבד בממשק זה)</span>
+              <div style={{ marginTop: 8 }}>
+                <span style={{ color: '#555', fontSize: 11 }}>Signal — תצוגה בלבד בממשק זה</span>
               </div>
             )}
           </div>
         );
       })}
+
       {items.length === 0 && deptData && (
         <p style={{ color: '#4CAF50', fontSize: 13 }}>אין פריטים {tab === 'vovax' ? 'VOVAX' : 'Signal'} ✓</p>
       )}
