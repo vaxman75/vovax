@@ -449,6 +449,11 @@ function PublishingPage({ employees, onAction }) {
                 <span style={{ color: '#F2F1ED', fontWeight: 600, fontSize: 14 }}>{item.topic}</span>
                 <StatusChip status={item.status} />
                 <QaChip status={item.qa_status} reason={item.qa_reason} />
+                {item.avatar_gender && (
+                  <span style={{ fontSize: 10, color: item.avatar_gender === 'female' ? '#FF9ECD' : '#9EC4FF', border: `1px solid ${item.avatar_gender === 'female' ? '#FF9ECD' : '#9EC4FF'}`, borderRadius: 4, padding: '1px 6px' }}>
+                    {item.avatar_gender === 'female' ? '♀' : '♂'} {item.avatar_gender}
+                  </span>
+                )}
                 {item.regenerated_from && (
                   <span style={{ fontSize: 10, color: '#46C7FF', border: '1px solid #46C7FF', borderRadius: 4, padding: '1px 6px' }}>
                     חידוש #{item.rejection_count ?? 1}

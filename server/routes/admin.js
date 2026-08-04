@@ -41,8 +41,8 @@ const ALL_EMPLOYEES = [
   { id: 'nadav',  name: 'נדב',   role: 'Monitor',             dept: 'publishing',   manager: 'asaf',  skillFile: 'nadav-monitor.md' },
   // Brand & Voice
   { id: 'shira',  name: 'שירה',  role: 'מנהלת מותג וקול',    dept: 'brand',        manager: null,    skillFile: 'shira-manager.md' },
-  { id: 'gal',    name: 'גל',    role: 'Voice Guide',         dept: 'brand',        manager: 'shira', skillFile: 'gal-voiceguide.md' },
-  { id: 'yuval',  name: 'יובל',  role: 'Content Check / QA',  dept: 'brand',        manager: 'shira', skillFile: 'yuval-contentcheck.md' },
+  { id: 'gal',    name: 'גל',    role: 'Voice Guide',         dept: 'brand',        manager: 'shira', skillFile: 'gal-voiceguide.md',    refs: ['references/voice-guide.md'] },
+  { id: 'yuval',  name: 'יובל',  role: 'Content Check / QA',  dept: 'brand',        manager: 'shira', skillFile: 'yuval-contentcheck.md', refs: ['references/voice-guide.md'] },
   // Distribution
   { id: 'uri',    name: 'אורי',  role: 'מנהל הפצה',          dept: 'distribution', manager: null,    skillFile: 'ori-distribution.md' },
   { id: 'lior',   name: 'ליאור', role: 'Spotify',             dept: 'distribution', manager: 'uri',   skillFile: 'lior-spotify.md' },
@@ -189,15 +189,14 @@ router.get('/dept/:name', requireAuth, async (req, res) => {
         pool.query(
           `SELECT pq.*, t.title AS track_title, t.genre AS track_genre
            FROM publish_queue pq LEFT JOIN tracks t ON pq.track_id = t.id
-           WHERE pq.channel='vovax'
+           WHERE pq.channel='vovax' AND pq.status IN ('pending','rendering','approved')
            ORDER BY CASE pq.status WHEN 'pending' THEN 0 WHEN 'approved' THEN 1 ELSE 2 END,
                     pq.created_at DESC
            LIMIT 30`
         ),
         pool.query(
-          `SELECT * FROM publish_queue WHERE channel='signal'
-           ORDER BY CASE status WHEN 'pending' THEN 0 WHEN 'approved' THEN 1 ELSE 2 END,
-                    created_at DESC
+          `SELECT * FROM publish_queue WHERE channel='signal' AND status='pending'
+           ORDER BY created_at DESC
            LIMIT 20`
         ),
       ]);
@@ -261,10 +260,11 @@ ${context}`;
     const emp = ALL_EMPLOYEES.find(e => e.id === employeeId);
     if (emp?.skillFile) {
       const skill = loadSkill(emp.skillFile);
-      const refContent = (emp.refs ?? [])
-        .map(r => loadSkill(r))
-        .filter(Boolean)
-        .join('\n\n---\n');
+      const refParts = await Promise.all((emp.refs ?? []).map(async r => {
+        if (r === 'references/voice-guide.md') return buildVoiceGuideFromDb();
+        return loadSkill(r);
+      }));
+      const refContent = refParts.filter(Boolean).join('\n\n---\n');
       const refs = refContent
         ? `\n\n---\n## ספריית רפרנסים — טעונה כעת בזיכרון שלך\nהמידע הבא כבר זמין לך. אל תאמר שאתה "הולך לבדוק" — הוא כאן. המלץ רק על פלאגינים שמופיעים ברשימה המאומתת הזו:\n\n${refContent}`
         : '';
@@ -322,6 +322,56 @@ async function fetchDeploys() {
       .filter(d => new Date(d.createdAt).getTime() > since)
       .slice(0, 6);
   } catch { return []; }
+}
+
+async function buildVoiceGuideFromDb() {
+  try {
+    const { rows } = await pool.query(
+      `SELECT title, genre, tags, description, play_count, duration_ms
+       FROM tracks ORDER BY play_count DESC`
+    );
+    const fmtDur = ms => ms ? `${Math.floor(ms/60000)}:${String(Math.floor((ms%60000)/1000)).padStart(2,'0')}` : null;
+    const withDesc  = rows.filter(r => r.description?.trim()).length;
+    const withTags  = rows.filter(r => r.tags?.trim()).length;
+
+    const genres = {};
+    for (const r of rows) { const g = (r.genre ?? 'ללא ז\'אנר').trim(); genres[g] = (genres[g] ?? 0) + 1; }
+    const genreLines = Object.entries(genres).sort((a,b) => b[1]-a[1]).map(([g,c]) => `- ${g}: ${c}`).join('\n');
+
+    const top20 = rows.slice(0, 20).map(r => {
+      const dur = fmtDur(r.duration_ms);
+      const lines = [`### ${r.title}`];
+      if (r.genre)         lines.push(`- **ז\'אנר:** ${r.genre}`);
+      if (dur)             lines.push(`- **אורך:** ${dur}`);
+      if (r.play_count)    lines.push(`- **השמעות:** ${r.play_count.toLocaleString()}`);
+      if (r.tags?.trim())  lines.push(`- **תגיות:** ${r.tags}`);
+      if (r.description?.trim()) lines.push(`- **תיאור:** ${r.description.trim().slice(0, 250)}`);
+      return lines.join('\n');
+    }).join('\n\n');
+
+    const allTable = rows.map(r =>
+      `| ${r.title} | ${r.genre ?? '—'} | ${fmtDur(r.duration_ms) ?? '—'} | ${(r.play_count ?? 0).toLocaleString()} |`
+    ).join('\n');
+
+    return `# מדריך קול VOVAX — קטלוג טראקים (${rows.length} סה"כ)
+> נוצר בזמן אמת מ-DB. מיון: play_count גבוה → נמוך.
+
+## סטטיסטיקה
+- **סה"כ:** ${rows.length} טראקים | **עם תיאור:** ${withDesc} | **עם תגיות:** ${withTags}
+
+## ז'אנרים
+${genreLines}
+
+## Top 20 — הכי מושמעים
+${top20}
+
+## כל הטראקים
+| כותרת | ז'אנר | אורך | השמעות |
+|---|---|---|---|
+${allTable}`;
+  } catch (e) {
+    return `# מדריך קול — DB לא זמין (${e.message})`;
+  }
 }
 
 async function buildContext() {
