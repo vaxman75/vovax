@@ -353,14 +353,16 @@ async function runQaReview(item) {
     ? `- MUST NOT contain "VOVAX" or any artist name\n- Curator discovery voice, not artist voice\n- Energetic, first-person scout tone\n- No hashtags, no emojis`
     : `- First-person artist voice (dark, minimal, intimate)\n- No hashtags, no emojis\n- No corporate or marketing language`;
 
+  // Gender parity is guaranteed by assertGenderPairing() before render submission.
+  // Pass gender as readable text only — never raw UUIDs which the model cannot interpret.
   const avatarLine = item.avatar_gender
-    ? `\nAvatar gender: ${item.avatar_gender} | HeyGen voice: ${item.heygen_voice_id ?? 'unknown'} | EL voice: ${item.el_voice_id ?? 'unknown'}`
+    ? `\nAvatar gender: ${item.avatar_gender} | All voices: ${item.avatar_gender} — gender parity confirmed upstream, do NOT re-evaluate voice IDs`
     : '';
 
   const durationLine = item.duration_hint
     ? `\n- Duration target set by briefing: ${item.duration_hint} — check script fits that scope`
     : `\n- Length appropriate for the platform: no unnecessary padding, no artificial shortening`;
-  const prompt = `Review this ${persona} post for publication quality.\n\nPost: "${item.script}"\nTopic: ${item.topic}${avatarLine}\n\nApproval criteria:\n${rules}${durationLine}\n- Grammatically correct and standalone-clear${item.avatar_gender ? '\n- Avatar/voice gender must match (female avatar + male voice = auto-fail)' : ''}\n\nRespond ONLY with this JSON (no markdown, no explanation):\n{"approved": <boolean>, "reason": "<one sentence>", "issues": [<issue strings> or empty array]}`;
+  const prompt = `Review this ${persona} post for publication quality.\n\nPost: "${item.script}"\nTopic: ${item.topic}${avatarLine}\n\nApproval criteria:\n${rules}${durationLine}\n- Grammatically correct and standalone-clear\n\nRespond ONLY with this JSON (no markdown, no explanation):\n{"approved": <boolean>, "reason": "<one sentence>", "issues": [<issue strings> or empty array]}`;
 
   let qa = { approved: false, reason: 'QA API error', issues: [] };
   try {
