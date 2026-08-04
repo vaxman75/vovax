@@ -332,7 +332,10 @@ async function generateScript(persona, track, topic, priorFailures = null, durat
   });
   const data = await r.json();
   if (!r.ok) return null;
-  return data.content?.[0]?.text?.trim() ?? null;
+  const raw = data.content?.[0]?.text?.trim() ?? null;
+  if (!raw) return null;
+  // Strip any leading markdown headings the model adds (e.g. "# Signal Detected\n\n")
+  return raw.replace(/^#+[^\n]*\n+/, '').trim();
 }
 
 // ─── QA review ───────────────────────────────────────────────────────────────
