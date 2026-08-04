@@ -220,7 +220,7 @@ router.get('/dept/:name', requireAuth, async (req, res) => {
     }
 
     if (name === 'music') {
-      const [tracksRes, pubRes] = await Promise.all([
+      const [tracksRes, pubRes, mqRes] = await Promise.all([
         pool.query(`SELECT id, title, genre, synced_at FROM tracks ORDER BY synced_at DESC LIMIT 20`),
         pool.query(
           `SELECT pq.id, pq.topic, pq.script, pq.status, pq.qa_status, pq.created_at,
@@ -229,8 +229,9 @@ router.get('/dept/:name', requireAuth, async (req, res) => {
            WHERE pq.channel='vovax'
            ORDER BY pq.created_at DESC LIMIT 10`
         ),
+        pool.query(`SELECT * FROM music_queue ORDER BY created_at DESC LIMIT 30`).catch(() => ({ rows: [] })),
       ]);
-      extra = { tracks: tracksRes.rows, recent: pubRes.rows };
+      extra = { tracks: tracksRes.rows, recent: pubRes.rows, musicQueue: mqRes.rows };
     }
 
     res.json({ employees, ...extra });

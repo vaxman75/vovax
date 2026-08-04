@@ -2,6 +2,7 @@ import cron from 'node-cron';
 import { Resend } from 'resend';
 import { buildDigestHtml, buildWeeklyDigestHtml } from './digest.js';
 import { checkHeyGenRender, sendPendingNotification } from './routes/publish.js';
+import { pollMusicGeneration, runMusicCycle } from './routes/music.js';
 import pool from './db/index.js';
 
 export function startCron() {
@@ -9,6 +10,20 @@ export function startCron() {
   const recipient = process.env.DIGEST_RECIPIENT_EMAIL;
 
   // ── HeyGen render poll — runs every 2 min regardless of email config ─────────
+  // ── Music generation poll — runs every 2 min ─────────────────────────────────
+  cron.schedule('*/2 * * * *', async () => {
+    try { await pollMusicGeneration(); }
+    catch (e) { console.error('Cron: music poll error:', e.message); }
+  });
+
+  // ── Autonomous music cycle — fills weekly quota (Sun–Thu 10:00 + 16:00) ────
+  cron.schedule('0 10,16 * * 0,1,2,3,4', async () => {
+    console.log('Cron[עמית]: checking music weekly quota...');
+    try { await runMusicCycle(); }
+    catch (e) { console.error('Cron: music cycle error:', e.message); }
+  }, { timezone: 'Asia/Jerusalem' });
+
+  // ── HeyGen render poll — runs every 2 min ────────────────────────────────────
   cron.schedule('*/2 * * * *', async () => {
     try {
       const heygenKey = process.env.HEYGEN_API_KEY;
@@ -92,5 +107,5 @@ export function startCron() {
     sendEmail(`VOVAX · בריף שבועי — ${israelDate()}`, buildWeeklyDigestHtml);
   }, { timezone: 'Asia/Jerusalem' });
 
-  console.log('Cron: HeyGen render poll (every 2 min), daily digest (Sun–Thu 08:00), weekly brief (Fri 08:00) — Israel time');
+  console.log('Cron: music poll+cycle, HeyGen poll, daily digest (Sun–Thu 08:00), weekly brief (Fri 08:00) — Israel time');
 }

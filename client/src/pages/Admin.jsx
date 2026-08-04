@@ -665,41 +665,174 @@ function DistributionPage({ employees }) {
 
 // ── Music page ────────────────────────────────────────────────────────────────
 
-function MusicPage({ employees }) {
-  const [deptData, setDeptData] = useState(null);
+const MQ_STATUS_LABEL = {
+  generating:    { label: 'מייצר…',        color: '#46C7FF' },
+  talia_qa:      { label: 'QA טליה',        color: '#46C7FF' },
+  amit_review:   { label: 'שער עמית',       color: '#FFB347' },
+  user_pending:  { label: 'ממתין לאישורך',  color: '#FFD700' },
+  user_approved: { label: 'אושר ✓',         color: '#4CAF50' },
+  user_rejected: { label: 'נדחה',           color: '#8B8A85' },
+  published:     { label: 'פורסם ✓',        color: '#4CAF50' },
+  failed:        { label: 'נכשל ✗',         color: '#FF4444' },
+};
 
-  useEffect(() => {
+function MusicPage({ employees }) {
+  const [deptData,  setDeptData]  = useState(null);
+  const [acting,    setActing]    = useState({});
+  const [cycling,   setCycling]   = useState(false);
+
+  const load = () => {
     fetch(`${API}/api/admin/dept/music`, { headers: authHdr() })
       .then(r => r.ok ? r.json() : null).then(setDeptData);
-  }, []);
+  };
+  useEffect(load, []);
 
-  const tracks = deptData?.tracks ?? [];
+  const tracks     = deptData?.tracks     ?? [];
+  const musicQueue = deptData?.musicQueue ?? [];
+  const pending    = musicQueue.filter(i => i.status === 'user_pending');
+  const inProgress = musicQueue.filter(i => ['generating','talia_qa','amit_review'].includes(i.status));
+  const done       = musicQueue.filter(i => ['user_approved','user_rejected','published','failed'].includes(i.status));
+
+  const mqAction = async (id, action, body = {}) => {
+    setActing(a => ({ ...a, [id]: action }));
+    await fetch(`${API}/api/music/${id}/${action}`, {
+      method: 'POST', headers: { ...authHdr(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    setActing(a => ({ ...a, [id]: null }));
+    load();
+  };
+
+  const triggerCycle = async () => {
+    setCycling(true);
+    await fetch(`${API}/api/music/cycle`, { method: 'POST', headers: authHdr() });
+    setCycling(false);
+    setTimeout(load, 2000);
+  };
+
+  const fmtAge = (ms) => {
+    const diff = Date.now() - Number(ms);
+    const h = Math.floor(diff / 3600000);
+    const m = Math.floor((diff % 3600000) / 60000);
+    return h > 0 ? `לפני ${h}ש׳ ${m}ד׳` : `לפני ${m}ד׳`;
+  };
+
+  const MQCard = ({ item }) => {
+    const st  = MQ_STATUS_LABEL[item.status] ?? { label: item.status, color: '#8B8A85' };
+    const isPending = item.status === 'user_pending';
+    return (
+      <div style={{ background: '#0D0D10', border: `1px solid ${isPending ? '#FFD70044' : '#1a1a1d'}`, borderRadius: 8, padding: '12px 14px', marginBottom: 8 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
+          <span style={{ color: st.color, fontSize: 11, fontWeight: 600 }}>{st.label}</span>
+          <span style={{ color: '#444', fontSize: 10 }}>{fmtAge(item.created_at)}</span>
+        </div>
+        <div style={{ color: '#8B8A85', fontSize: 11, marginBottom: 6, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {item.context_hour && <span>🎯 {item.context_hour}</span>}
+          {item.platform     && <span>📱 {item.platform}</span>}
+          {item.bpm          && <span>🥁 {item.bpm} BPM</span>}
+          {item.duration_s   && <span>⏱ {Math.floor(item.duration_s/60)}:{String(item.duration_s%60).padStart(2,'0')}</span>}
+          {item.mood         && <span>💭 {item.mood}</span>}
+        </div>
+        <div style={{ color: '#F2F1ED', fontSize: 12, lineHeight: 1.4, marginBottom: 8, wordBreak: 'break-word' }} dir="ltr">
+          {(item.prompt ?? '').slice(0, 160)}{item.prompt?.length > 160 ? '…' : ''}
+        </div>
+        {item.talia_verdict && (
+          <div style={{ fontSize: 11, color: item.talia_verdict === 'APPROVED' ? '#4CAF50' : item.talia_verdict === 'REJECTED' ? '#FF4444' : '#FFB347', marginBottom: 4 }}>
+            טליה: {item.talia_verdict}
+            {item.talia_result?.summary ? ` — ${item.talia_result.summary}` : ''}
+          </div>
+        )}
+        {item.amit_reason && (
+          <div style={{ fontSize: 11, color: item.amit_approved === true ? '#4CAF50' : item.amit_approved === false ? '#FF9944' : '#8B8A85', marginBottom: 6 }}>
+            עמית: {item.amit_reason}
+          </div>
+        )}
+        {item.audio_urls?.length > 0 && (
+          <div style={{ marginBottom: 6 }}>
+            {item.audio_urls.map((u, i) => <audio key={i} controls src={u} style={{ width: '100%', marginTop: 4 }} />)}
+          </div>
+        )}
+        {isPending && (
+          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+            <button onClick={() => mqAction(item.id, 'user-approve')} disabled={!!acting[item.id]}
+              style={{ background: acting[item.id] ? '#232326' : '#4CAF50', color: '#0A0A0C', border: 'none', borderRadius: 5, padding: '5px 14px', fontSize: 12, cursor: 'pointer', fontWeight: 600 }}>
+              {acting[item.id] === 'user-approve' ? '…' : 'אשר ✓'}
+            </button>
+            <button onClick={() => mqAction(item.id, 'user-reject', { reason: 'נדחה על ידי המשתמש' })} disabled={!!acting[item.id]}
+              style={{ background: 'transparent', color: '#FF4444', border: '1px solid #FF444466', borderRadius: 5, padding: '5px 14px', fontSize: 12, cursor: 'pointer' }}>
+              {acting[item.id] === 'user-reject' ? '…' : 'דחה ✗'}
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div dir="rtl" style={{ padding: '24px 28px' }}>
-      <h1 style={{ color: '#F2F1ED', fontSize: 20, margin: '0 0 4px' }}>🎵 יצירת מוזיקה</h1>
-      <p style={{ color: '#555', fontSize: 12, margin: '0 0 20px' }}>{employees.length} עובדים — עמית (מנהל)</p>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 }}>
+        <h1 style={{ color: '#F2F1ED', fontSize: 20, margin: 0 }}>🎵 יצירת מוזיקה</h1>
+        <button onClick={triggerCycle} disabled={cycling}
+          style={{ background: cycling ? '#232326' : '#0D1A20', color: cycling ? '#555' : '#46C7FF', border: '1px solid #46C7FF44', borderRadius: 6, padding: '5px 12px', fontSize: 11, cursor: 'pointer' }}>
+          {cycling ? 'מריץ…' : '⚡ הפעל מחזור עמית'}
+        </button>
+      </div>
+      <p style={{ color: '#555', fontSize: 12, margin: '0 0 20px' }}>{employees.length} עובדים — עמית (מנהל) · {pending.length} ממתינים לאישורך</p>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 8, marginBottom: 24 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 6, marginBottom: 24 }}>
         {employees.map(e => (
-          <div key={e.id} style={{ background: '#131316', border: '1px solid #1a1a1d', borderRadius: 8, padding: '10px 12px' }}>
+          <div key={e.id} style={{ background: '#131316', border: '1px solid #1a1a1d', borderRadius: 8, padding: '8px 10px' }}>
             <div style={{ color: '#F2F1ED', fontSize: 12, fontWeight: 600 }}>{e.name}</div>
-            <div style={{ color: '#555', fontSize: 11 }}>{e.role}</div>
-            {e.manager && <div style={{ color: '#333', fontSize: 10 }}>← {e.manager}</div>}
+            <div style={{ color: '#555', fontSize: 10 }}>{e.role}</div>
           </div>
         ))}
       </div>
 
-      <h2 style={{ color: '#8B8A85', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.1em', margin: '0 0 12px' }}>
-        טראקים אחרונים — {tracks.length}
-      </h2>
-      {!deptData && <p style={{ color: '#555', fontSize: 13 }}>טוען…</p>}
-      {tracks.map(t => (
-        <div key={t.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 0', borderBottom: '1px solid #1a1a1d', fontSize: 13 }}>
-          <span style={{ color: '#F2F1ED' }}>{t.title}</span>
-          <span style={{ color: '#555', fontSize: 11 }}>{t.genre ?? ''}</span>
-        </div>
-      ))}
+      {pending.length > 0 && (
+        <>
+          <h2 style={{ color: '#FFD700', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.1em', margin: '0 0 10px' }}>
+            ממתין לאישורך — {pending.length}
+          </h2>
+          {pending.map(i => <MQCard key={i.id} item={i} />)}
+        </>
+      )}
+
+      {inProgress.length > 0 && (
+        <>
+          <h2 style={{ color: '#8B8A85', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.1em', margin: '16px 0 10px' }}>
+            בייצור — {inProgress.length}
+          </h2>
+          {inProgress.map(i => <MQCard key={i.id} item={i} />)}
+        </>
+      )}
+
+      {done.length > 0 && (
+        <>
+          <h2 style={{ color: '#8B8A85', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.1em', margin: '16px 0 10px' }}>
+            היסטוריה — {done.length}
+          </h2>
+          {done.slice(0, 10).map(i => <MQCard key={i.id} item={i} />)}
+        </>
+      )}
+
+      {musicQueue.length === 0 && !deptData && <p style={{ color: '#555', fontSize: 13 }}>טוען…</p>}
+      {musicQueue.length === 0 && deptData && (
+        <p style={{ color: '#555', fontSize: 13 }}>אין פריטים בתור — לחץ "הפעל מחזור עמית" להתחיל</p>
+      )}
+
+      {tracks.length > 0 && (
+        <>
+          <h2 style={{ color: '#8B8A85', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.1em', margin: '24px 0 10px' }}>
+            טראקים אחרונים — {tracks.length}
+          </h2>
+          {tracks.map(t => (
+            <div key={t.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid #1a1a1d', fontSize: 13 }}>
+              <span style={{ color: '#F2F1ED' }}>{t.title}</span>
+              <span style={{ color: '#555', fontSize: 11 }}>{t.genre ?? ''}</span>
+            </div>
+          ))}
+        </>
+      )}
     </div>
   );
 }
