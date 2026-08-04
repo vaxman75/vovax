@@ -293,7 +293,7 @@ const TOPIC_ANGLE = {
   genre_deep_dive:  'Use this track as a lens into the heavy melodic techno underground.',
 };
 
-async function generateScript(persona, track, topic, priorFailures = null) {
+async function generateScript(persona, track, topic, priorFailures = null, durationHint = null) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return null;
 
@@ -302,6 +302,11 @@ async function generateScript(persona, track, topic, priorFailures = null) {
   const desc  = persona === 'signal' ? rawDesc.replace(/vovax/gi, '[artist]') : rawDesc;
   const title = persona === 'signal' ? (track.title ?? '').replace(/vovax/gi, '[track]') : (track.title ?? '');
 
+  // Duration: set by עמית's briefing; absent = natural narrative length (no artificial cap)
+  const lengthGuide = durationHint
+    ? `- Target: approximately ${durationHint} — let the narrative fill that space naturally`
+    : `- Length: as long as the story genuinely needs — never cut short to fit a number`;
+
   let corrective = '';
   if (priorFailures) {
     const banned = (priorFailures.bannedWords ?? []);
@@ -309,20 +314,21 @@ async function generateScript(persona, track, topic, priorFailures = null) {
     const issueLines = (priorFailures.issues ?? []).length > 0
       ? '\nSpecific failures:\n' + priorFailures.issues.map(i => `- ${i}`).join('\n')
       : '';
-    corrective = `\n\n⚠ PREVIOUS DRAFT FAILED QA (attempt #${priorFailures.attempt ?? 2}). MANDATORY corrections:\nRejection: ${priorFailures.reason ?? ''}${issueLines}${bannedLine}\n- HARD maximum: 100 characters total — count before outputting\n- No metaphors, no poetic phrasing — blunt, direct, real\n- Sentence structure must be different from the failed draft`;
+    corrective = `\n\n⚠ PREVIOUS DRAFT FAILED QA (attempt #${priorFailures.attempt ?? 2}). MANDATORY corrections:\nRejection: ${priorFailures.reason ?? ''}${issueLines}${bannedLine}\n- No metaphors, no poetic phrasing — blunt, direct, real\n- Sentence structure must be different from the failed draft`;
   }
 
   let prompt;
   if (persona === 'signal') {
-    prompt = `You are Signal Detected, an anonymous underground music curator posting on Instagram/TikTok.\n${angle}\n\nTrack: "${title}"\nGenre: ${track.genre ?? 'underground techno'}\n${desc ? `Description: ${desc}` : ''}\n\nWrite one short curator post. Hard rules:\n- MAXIMUM 100 characters total (count every character before writing)\n- NEVER mention the artist name or "VOVAX"\n- NEVER say "underground" or "heavy melodic techno" verbatim\n- Tone: clipped, direct, scout who found something first — no flowery language\n- No hashtags, no emojis${corrective}\nWrite only the post text, nothing else.`;
+    prompt = `You are Signal Detected, an anonymous underground music curator posting on Instagram/TikTok.\n${angle}\n\nTrack: "${title}"\nGenre: ${track.genre ?? 'underground techno'}\n${desc ? `Description: ${desc}` : ''}\n\nWrite a curator post. Hard rules:\n${lengthGuide}\n- NEVER mention the artist name or "VOVAX"\n- NEVER say "underground" or "heavy melodic techno" verbatim\n- Tone: clipped, direct, scout who found something first — no flowery language\n- No hashtags, no emojis${corrective}\nWrite only the post text, nothing else.`;
   } else {
-    prompt = `You are VOVAX, an underground heavy melodic techno artist posting on Instagram/TikTok.\n${angle}\n\nTrack: "${title}"\nGenre: ${track.genre ?? 'heavy melodic techno'}\n${desc ? `Description: ${desc}` : ''}\n\nWrite one short first-person post. Hard rules:\n- MAXIMUM 100 characters total\n- Dark, minimal, intimate — no marketing language\n- No hashtags, no emojis${corrective}\nWrite only the post text, nothing else.`;
+    prompt = `You are VOVAX, an underground heavy melodic techno artist posting on Instagram/TikTok.\n${angle}\n\nTrack: "${title}"\nGenre: ${track.genre ?? 'heavy melodic techno'}\n${desc ? `Description: ${desc}` : ''}\n\nWrite a first-person post. Hard rules:\n${lengthGuide}\n- Dark, minimal, intimate — no marketing language\n- No hashtags, no emojis${corrective}\nWrite only the post text, nothing else.`;
   }
 
+  // max_tokens raised: 150 was too low for longer narratives when no duration cap
   const r = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-    body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 150, messages: [{ role: 'user', content: prompt }] }),
+    body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 600, messages: [{ role: 'user', content: prompt }] }),
   });
   const data = await r.json();
   if (!r.ok) return null;
@@ -348,7 +354,10 @@ async function runQaReview(item) {
     ? `\nAvatar gender: ${item.avatar_gender} | HeyGen voice: ${item.heygen_voice_id ?? 'unknown'} | EL voice: ${item.el_voice_id ?? 'unknown'}`
     : '';
 
-  const prompt = `Review this ${persona} post for publication quality.\n\nPost: "${item.script}"\nTopic: ${item.topic}${avatarLine}\n\nApproval criteria:\n${rules}\n- Max 120 characters\n- Grammatically correct and standalone-clear${item.avatar_gender ? '\n- Avatar/voice gender must match (female avatar + male voice = auto-fail)' : ''}\n\nRespond ONLY with this JSON (no markdown, no explanation):\n{"approved": <boolean>, "reason": "<one sentence>", "issues": [<issue strings> or empty array]}`;
+  const durationLine = item.duration_hint
+    ? `\n- Duration target set by briefing: ${item.duration_hint} — check script fits that scope`
+    : `\n- Length appropriate for the platform: no unnecessary padding, no artificial shortening`;
+  const prompt = `Review this ${persona} post for publication quality.\n\nPost: "${item.script}"\nTopic: ${item.topic}${avatarLine}\n\nApproval criteria:\n${rules}${durationLine}\n- Grammatically correct and standalone-clear${item.avatar_gender ? '\n- Avatar/voice gender must match (female avatar + male voice = auto-fail)' : ''}\n\nRespond ONLY with this JSON (no markdown, no explanation):\n{"approved": <boolean>, "reason": "<one sentence>", "issues": [<issue strings> or empty array]}`;
 
   let qa = { approved: false, reason: 'QA API error', issues: [] };
   try {
@@ -409,7 +418,7 @@ async function runQaReview(item) {
           [Date.now(), reason, item.id]
         );
         if (updated.rows.length > 0) {
-          regenerateSignalItem(item, priorQaFailures)
+          regenerateSignalItem(item, priorQaFailures, item.duration_hint ?? null)
             .catch(e => console.error('QA auto-regen (signal) failed:', e.message));
         }
       }
@@ -420,7 +429,7 @@ async function runQaReview(item) {
   return { ok: true, qa_status: qaStatus, qa_reason: qa.reason ?? null, qa_issues: qa.issues ?? [], employee: 'yuval-contentcheck' };
 }
 
-async function regenerateSignalItem(oldItem, priorFailures = null) {
+async function regenerateSignalItem(oldItem, priorFailures = null, durationHint = null) {
   const usedTopics = await recentTopics('signal', 3);
   const topic = oldItem.topic ?? pickTopic(SIGNAL_TOPICS, usedTopics);
 
@@ -434,7 +443,7 @@ async function regenerateSignalItem(oldItem, priorFailures = null) {
 
   let finalScript = null;
   if (track) {
-    finalScript = await generateScript('signal', track, topic, priorFailures);
+    finalScript = await generateScript('signal', track, topic, priorFailures, durationHint);
     if (finalScript && /vovax/i.test(finalScript)) finalScript = null;
     if (finalScript) trackId = track.id;
   }
@@ -490,7 +499,7 @@ export async function sendPendingNotification() {
 
 // ─── Core VOVAX item creation (used by generate + auto-regen after reject) ────
 
-async function createVovaxItem({ platform = 'instagram', topic: forceTopic, forceTrackId, rejCount = 0, regeneratedFrom = null, priorQaFailures = null }) {
+async function createVovaxItem({ platform = 'instagram', topic: forceTopic, forceTrackId, rejCount = 0, regeneratedFrom = null, priorQaFailures = null, durationHint = null }) {
   const usedTopics    = await recentTopics('vovax', 3);
   const usedAvatarIds = await recentAvatarIds('vovax', 5);
   const topic = forceTopic ?? pickTopic(VOVAX_TOPICS, usedTopics);
@@ -517,7 +526,7 @@ async function createVovaxItem({ platform = 'instagram', topic: forceTopic, forc
     }
     if (track) {
       trackId        = track.id;
-      scriptTemplate = await generateScript('vovax', track, topic, priorQaFailures);
+      scriptTemplate = await generateScript('vovax', track, topic, priorQaFailures, durationHint);
     }
     if (!scriptTemplate) {
       scriptTemplate = pickFrom(VOVAX_SCRIPTS[topic] ?? VOVAX_SCRIPTS.studio_session);
@@ -531,15 +540,15 @@ async function createVovaxItem({ platform = 'instagram', topic: forceTopic, forc
 
   const id  = uid();
   const now = Date.now();
-  const item = { id, channel: 'vovax', platform, topic, script: scriptTemplate, script_hash: scriptHash(scriptTemplate), avatar_id: render?.avatar_id ?? null, heygen_video_id: render?.video_id ?? null, avatar_gender: render?.avatar_gender ?? null, heygen_voice_id: render?.voice_id ?? null, el_voice_id: render?.el_voice_id ?? null, status, created_at: now, track_id: trackId, rejection_count: rejCount, regenerated_from: regeneratedFrom };
+  const item = { id, channel: 'vovax', platform, topic, script: scriptTemplate, script_hash: scriptHash(scriptTemplate), avatar_id: render?.avatar_id ?? null, heygen_video_id: render?.video_id ?? null, avatar_gender: render?.avatar_gender ?? null, heygen_voice_id: render?.voice_id ?? null, el_voice_id: render?.el_voice_id ?? null, status, created_at: now, track_id: trackId, rejection_count: rejCount, regenerated_from: regeneratedFrom, duration_hint: durationHint };
 
   await pool.query(
-    `INSERT INTO publish_queue (id,channel,platform,topic,script,script_hash,avatar_id,heygen_video_id,avatar_gender,heygen_voice_id,el_voice_id,status,created_at,track_id,rejection_count,regenerated_from)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
+    `INSERT INTO publish_queue (id,channel,platform,topic,script,script_hash,avatar_id,heygen_video_id,avatar_gender,heygen_voice_id,el_voice_id,status,created_at,track_id,rejection_count,regenerated_from,duration_hint)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
     [item.id, item.channel, item.platform, item.topic, item.script, item.script_hash,
      item.avatar_id, item.heygen_video_id, item.avatar_gender, item.heygen_voice_id, item.el_voice_id,
      item.status, item.created_at, item.track_id,
-     item.rejection_count, item.regenerated_from]
+     item.rejection_count, item.regenerated_from, item.duration_hint]
   );
 
   // QA runs on the script immediately (non-blocking — video render runs in parallel)
@@ -558,7 +567,7 @@ router.post('/vovax/generate', async (req, res) => {
     );
     const pendingBefore = pbRows[0]?.cnt ?? 0;
 
-    const result = await createVovaxItem({ platform: req.body.platform ?? 'instagram', topic: req.body.topic });
+    const result = await createVovaxItem({ platform: req.body.platform ?? 'instagram', topic: req.body.topic, durationHint: req.body.duration_hint ?? null });
 
     // Only notify if no HeyGen render is running (cron will notify when render completes)
     if (!result.rendering && pendingBefore === 0) {
@@ -668,9 +677,10 @@ router.post('/vovax/:id/mark-published', async (req, res) => {
 
 // ─── Signal Detected endpoints ────────────────────────────────────────────────
 
-router.get('/signal/brief', async (_req, res) => {
+router.get('/signal/brief', async (req, res) => {
   try {
     const platform     = 'instagram';
+    const durationHint = req.query.duration_hint ?? null;
     const usedTopics    = await recentTopics('signal', 3);
     const usedAvatarIds = await recentAvatarIds('signal', 5);
     const topic  = pickTopic(SIGNAL_TOPICS, usedTopics);
@@ -682,20 +692,8 @@ router.get('/signal/brief', async (_req, res) => {
     let finalScript = script;
     const track = await pickUnusedTrack();
     if (track) {
-      let claudeScript = null;
-      for (let attempt = 1; attempt <= 3; attempt++) {
-        const priorFails = attempt > 1 && claudeScript
-          ? { attempt, reason: `Script too long (${claudeScript.length} chars, max 120)`, issues: [`Script was ${claudeScript.length} characters — must be under 120`], bannedWords: [] }
-          : null;
-        claudeScript = await generateScript('signal', track, topic, priorFails);
-        if (claudeScript && !/vovax/i.test(claudeScript) && claudeScript.length <= 120) {
-          finalScript = claudeScript; trackId = track.id; break;
-        }
-      }
-      // Last resort: hard-truncate best attempt rather than falling back to static script
-      if (!finalScript && claudeScript && !/vovax/i.test(claudeScript)) {
-        finalScript = claudeScript.slice(0, 120); trackId = track.id;
-      }
+      const claudeScript = await generateScript('signal', track, topic, null, durationHint);
+      if (claudeScript && !/vovax/i.test(claudeScript)) { finalScript = claudeScript; trackId = track.id; }
     }
 
     if (/vovax/i.test(finalScript)) return res.status(500).json({ error: 'script_contains_vovax — content library error' });
@@ -703,12 +701,12 @@ router.get('/signal/brief', async (_req, res) => {
     const id  = uid();
     const now = Date.now();
     await pool.query(
-      `INSERT INTO publish_queue (id,channel,platform,topic,script,script_hash,status,created_at,track_id)
-       VALUES ($1,'signal',$2,$3,$4,$5,'pending',$6,$7)`,
-      [id, platform, topic, finalScript, scriptHash(finalScript), now, trackId]
+      `INSERT INTO publish_queue (id,channel,platform,topic,script,script_hash,status,created_at,track_id,duration_hint)
+       VALUES ($1,'signal',$2,$3,$4,$5,'pending',$6,$7,$8)`,
+      [id, platform, topic, finalScript, scriptHash(finalScript), now, trackId, durationHint]
     );
 
-    runQaReview({ id, channel: 'signal', topic, script: finalScript }).catch(e => console.error('QA error (signal):', e.message));
+    runQaReview({ id, channel: 'signal', topic, script: finalScript, duration_hint: durationHint }).catch(e => console.error('QA error (signal):', e.message));
 
     let picks = { avatar_id: null, avatar_name: null, avatar_gender: null, voice_id: null, voice_name: null, el_voice_id: null, el_voice_name: null };
     try {
