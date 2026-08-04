@@ -354,10 +354,109 @@ function renderOps(ops) {
   ).join('')}</ul>`;
 }
 
+// ── Health monitoring ─────────────────────────────────────────────────────────
+
+async function buildHealthData() {
+  const since24h = Date.now() - 24 * 60 * 60 * 1000;
+  const stuckCutoff = Date.now() - 30 * 60 * 1000; // renders stuck > 30 min
+
+  const [vovaxLastRes, signalLastRes, renderLastRes, qaLastRes,
+    stuckRes, signalFailRes, tracksRes, activityRes] = await Promise.all([
+    pool.query(`SELECT created_at, status, topic FROM publish_queue WHERE channel='vovax' ORDER BY created_at DESC LIMIT 1`),
+    pool.query(`SELECT created_at, status, topic FROM publish_queue WHERE channel='signal' ORDER BY created_at DESC LIMIT 1`),
+    pool.query(`SELECT created_at, channel FROM publish_queue WHERE video_url IS NOT NULL ORDER BY created_at DESC LIMIT 1`),
+    pool.query(`SELECT qa_at, qa_status FROM publish_queue WHERE qa_at IS NOT NULL ORDER BY qa_at DESC LIMIT 1`),
+    pool.query(`SELECT COUNT(*)::int AS cnt FROM publish_queue WHERE status='rendering' AND created_at < $1`, [stuckCutoff]),
+    pool.query(`SELECT COUNT(*)::int AS cnt FROM publish_queue WHERE channel='signal' AND qa_status='fail' AND qa_at >= $1`, [since24h]),
+    pool.query(`SELECT COUNT(*)::int AS cnt, MAX(synced_at) AS last_sync FROM tracks`),
+    pool.query(`SELECT channel, COUNT(*)::int AS cnt FROM publish_queue WHERE created_at >= $1 GROUP BY channel`, [since24h]),
+  ]);
+
+  return {
+    vovaxLast:         vovaxLastRes.rows[0] ?? null,
+    signalLast:        signalLastRes.rows[0] ?? null,
+    renderLast:        renderLastRes.rows[0] ?? null,
+    qaLast:            qaLastRes.rows[0] ?? null,
+    stuckRenders:      stuckRes.rows[0]?.cnt ?? 0,
+    signalFailures24h: signalFailRes.rows[0]?.cnt ?? 0,
+    trackCount:        tracksRes.rows[0]?.cnt ?? 0,
+    trackLastSync:     tracksRes.rows[0]?.last_sync ?? null,
+    activityByChannel: Object.fromEntries(activityRes.rows.map(r => [r.channel, r.cnt])),
+    apiKeys: {
+      anthropic:  !!process.env.ANTHROPIC_API_KEY,
+      heygen:     !!process.env.HEYGEN_API_KEY && process.env.HEYGEN_API_KEY !== 'placeholder',
+      elevenlabs: !!process.env.ELEVENLABS_API_KEY,
+      resend:     !!process.env.RESEND_API_KEY,
+      pixazo:     !!process.env.PIXAZO_API_KEY,
+      railway:    !!process.env.RAILWAY_API_TOKEN,
+    },
+  };
+}
+
+function renderHealthSection(h) {
+  const now = Date.now();
+  const age = (ms) => {
+    if (ms == null) return null;
+    const diff = now - Number(ms);
+    const hours = Math.floor(diff / 3600000);
+    const mins  = Math.floor((diff % 3600000) / 60000);
+    return hours > 0 ? `לפני ${hours}ש׳ ${mins}ד׳` : `לפני ${mins}ד׳`;
+  };
+  const ok   = (s) => `<span class="ok">● ${s}</span>`;
+  const warn = (s) => `<span class="warn">⚠ ${s}</span>`;
+  const err  = (s) => `<span class="err">✗ ${s}</span>`;
+
+  const STALE_WARN = 48 * 3600000; // 48h without activity = warn
+
+  const vovaxAge  = h.vovaxLast  ? now - Number(h.vovaxLast.created_at)  : null;
+  const signalAge = h.signalLast ? now - Number(h.signalLast.created_at) : null;
+
+  const pipeline = [
+    !h.vovaxLast   ? err('VOVAX pipeline — אין פריטים בכלל')
+    : vovaxAge > STALE_WARN ? warn(`VOVAX — אחרון ${age(h.vovaxLast.created_at)} (${h.vovaxLast.status})`)
+    : ok(`VOVAX — אחרון ${age(h.vovaxLast.created_at)}`),
+
+    !h.signalLast  ? err('Signal pipeline — אין פריטים בכלל')
+    : signalAge > STALE_WARN ? warn(`Signal — אחרון ${age(h.signalLast.created_at)} (${h.signalLast.status})`)
+    : ok(`Signal — אחרון ${age(h.signalLast.created_at)}`),
+
+    h.stuckRenders > 0
+      ? err(`${h.stuckRenders} רינדורים תקועים > 30 דקות — בדוק HeyGen`)
+      : ok('אין רינדורים תקועים'),
+
+    !h.renderLast
+      ? warn('HeyGen — עדיין לא הושלמו ווידאו')
+      : ok(`HeyGen — וידאו אחרון הושלם ${age(h.renderLast.created_at)}`),
+
+    !h.qaLast
+      ? warn('QA (יובל) — לא רץ היום')
+      : ok(`QA — בדיקה אחרונה ${age(h.qaLast.qa_at)}`),
+
+    h.signalFailures24h > 5
+      ? warn(`Signal QA — ${h.signalFailures24h} כשלות ב-24ש׳ (רגרסיה?)`)
+      : ok(`Signal QA — ${h.signalFailures24h} כשלות ב-24ש׳`),
+
+    h.trackCount === 0
+      ? err('מאגר טראקים — ריק, בדוק SoundCloud sync')
+      : ok(`מאגר טראקים — ${h.trackCount} טראקים${h.trackLastSync ? ` · סנכרון: ${age(h.trackLastSync)}` : ''}`),
+  ];
+
+  const keyRows = Object.entries(h.apiKeys).map(([k, v]) => v ? ok(k) : err(`${k}`)).join('  ');
+
+  const pipelineHtml = pipeline.map(s => `<p style="font-size:13px;margin:3px 0">${s}</p>`).join('');
+  const note = `<p style="font-size:11px;color:#8B8A85;margin:10px 0 3px;font-style:italic">⚡ ACE-Step — on-demand בלבד, אין pipeline אוטומטי. כל ייצור מוזיקלי מתחיל מיוזמת המשתמש.</p>`;
+
+  return pipelineHtml
+    + `<p style="font-size:11px;color:#8B8A85;margin:10px 0 4px">API Keys</p>`
+    + `<p style="font-size:12px;margin:3px 0">${keyRows}</p>`
+    + note;
+}
+
 // ── Exported HTML builders ────────────────────────────────────────────────────
 
 export async function buildDigestHtml() {
-  const { tasks, gigs, ops, activity, pendingApprovals, tracksUsedToday, qaToday, deploys } = await buildDigestData();
+  const [digestData, health] = await Promise.all([buildDigestData(), buildHealthData()]);
+  const { tasks, gigs, ops, activity, pendingApprovals, tracksUsedToday, qaToday, deploys } = digestData;
 
   const activeTasks  = tasks.filter((t) => t.section === 'active');
   const waitingTasks = tasks.filter((t) => t.section === 'waiting');
@@ -390,6 +489,9 @@ ${renderQaStats(qaToday)}
 
 <h2>Railway — 48 שעות אחרונות</h2>
 ${renderDeploys(deploys)}
+
+<h2>בריאות המערכת</h2>
+${renderHealthSection(health)}
 
 <h2>משימות פתוחות — <span class="count">${activeTasks.length + waitingTasks.length}</span></h2>
 ${renderTasks(activeTasks, waitingTasks)}
