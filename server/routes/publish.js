@@ -11,6 +11,39 @@ function loadEmployeeSkill(filename) {
   catch { return null; }
 }
 
+function loadCastingStandards() {
+  const fallback = {
+    vovax:  { include: ['dark','night','moody','minimal','underground','studio','street'], exclude: ['office','corporate','sofa','business','bright','suit','formal'] },
+    signal: { include: ['urban','street','casual','outdoor','city','energetic','night','underground'], exclude: ['office','corporate','sofa','business','formal','suit'] },
+  };
+  try {
+    const content = readFileSync(join(__dirname, '../employees/references/avatar-casting-standards.md'), 'utf-8');
+    const sectionMap = {};
+    let currentSection = null;
+    for (const line of content.split('\n')) {
+      const m = line.match(/^##\s+(.+)/);
+      if (m) { currentSection = m[1].trim(); sectionMap[currentSection] = ''; }
+      else if (currentSection && line.trim() && !line.startsWith('#') && !sectionMap[currentSection]) {
+        sectionMap[currentSection] = line.trim();
+      }
+    }
+    const parseList = (key) => (sectionMap[key] ?? '').split(',').map(s => s.trim()).filter(Boolean);
+    const vi = parseList('VOVAX keywords: include');
+    const ve = parseList('VOVAX keywords: exclude');
+    const si = parseList('Signal Detected keywords: include');
+    const se = parseList('Signal Detected keywords: exclude');
+    const standards = {
+      vovax:  { include: vi.length > 0 ? vi : fallback.vovax.include,  exclude: ve.length > 0 ? ve : fallback.vovax.exclude  },
+      signal: { include: si.length > 0 ? si : fallback.signal.include, exclude: se.length > 0 ? se : fallback.signal.exclude },
+    };
+    console.log(`[ART] casting standards loaded from file — vovax include:${standards.vovax.include.length} exclude:${standards.vovax.exclude.length}`);
+    return standards;
+  } catch (e) {
+    console.warn('[ART] casting standards file not found — using hardcoded fallback:', e.message);
+    return fallback;
+  }
+}
+
 const router = Router();
 
 // ─── Content libraries ────────────────────────────────────────────────────────
@@ -36,10 +69,8 @@ const SIGNAL_SCRIPTS = {
 
 // ─── HeyGen top-picks ─────────────────────────────────────────────────────────
 
-const PERSONA_AVATAR = {
-  vovax:  { include: ['dark','night','moody','minimal','underground','studio','street'], exclude: ['office','corporate','sofa','business','bright','suit','formal'] },
-  signal: { include: ['urban','street','casual','outdoor','city','energetic','night','underground'], exclude: ['office','corporate','sofa','business','formal','suit'] },
-};
+// Loaded from avatar-casting-standards.md — אלה owns this file, publish.js reads FROM it
+const PERSONA_AVATAR = loadCastingStandards();
 
 function scoreAvatar(a, persona) {
   const name = (a.name || '').toLowerCase();
@@ -211,7 +242,7 @@ async function submitHeyGenRender(script, persona, usedAvatarIds = []) {
       console.error('HeyGen submit failed:', data?.error ?? data);
       return null;
     }
-    return { video_id: data.data.video_id, avatar_id: picks.avatar_id, voice_id: picks.voice_id, el_voice_id: picks.el_voice_id, avatar_gender: picks.avatar_gender };
+    return { video_id: data.data.video_id, avatar_id: picks.avatar_id, avatar_name: picks.avatar_name, voice_id: picks.voice_id, el_voice_id: picks.el_voice_id, avatar_gender: picks.avatar_gender };
   } catch (e) {
     console.error('HeyGen submit error:', e.message);
     return null;
@@ -545,13 +576,13 @@ async function createVovaxItem({ platform = 'instagram', topic: forceTopic, forc
 
   const id  = uid();
   const now = Date.now();
-  const item = { id, channel: 'vovax', platform, topic, script: scriptTemplate, script_hash: scriptHash(scriptTemplate), avatar_id: render?.avatar_id ?? null, heygen_video_id: render?.video_id ?? null, avatar_gender: render?.avatar_gender ?? null, heygen_voice_id: render?.voice_id ?? null, el_voice_id: render?.el_voice_id ?? null, status, created_at: now, track_id: trackId, rejection_count: rejCount, regenerated_from: regeneratedFrom, duration_hint: durationHint };
+  const item = { id, channel: 'vovax', platform, topic, script: scriptTemplate, script_hash: scriptHash(scriptTemplate), avatar_id: render?.avatar_id ?? null, avatar_name: render?.avatar_name ?? null, heygen_video_id: render?.video_id ?? null, avatar_gender: render?.avatar_gender ?? null, heygen_voice_id: render?.voice_id ?? null, el_voice_id: render?.el_voice_id ?? null, status, created_at: now, track_id: trackId, rejection_count: rejCount, regenerated_from: regeneratedFrom, duration_hint: durationHint };
 
   await pool.query(
-    `INSERT INTO publish_queue (id,channel,platform,topic,script,script_hash,avatar_id,heygen_video_id,avatar_gender,heygen_voice_id,el_voice_id,status,created_at,track_id,rejection_count,regenerated_from,duration_hint)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
+    `INSERT INTO publish_queue (id,channel,platform,topic,script,script_hash,avatar_id,avatar_name,heygen_video_id,avatar_gender,heygen_voice_id,el_voice_id,status,created_at,track_id,rejection_count,regenerated_from,duration_hint)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
     [item.id, item.channel, item.platform, item.topic, item.script, item.script_hash,
-     item.avatar_id, item.heygen_video_id, item.avatar_gender, item.heygen_voice_id, item.el_voice_id,
+     item.avatar_id, item.avatar_name, item.heygen_video_id, item.avatar_gender, item.heygen_voice_id, item.el_voice_id,
      item.status, item.created_at, item.track_id,
      item.rejection_count, item.regenerated_from, item.duration_hint]
   );
@@ -771,6 +802,68 @@ router.get('/top-picks', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// ─── ART review — אלה scores recent avatar names against casting standards ────
+
+export async function runArtReview() {
+  const since = Date.now() - 30 * 24 * 60 * 60 * 1000;
+  const { rows } = await pool.query(
+    `SELECT avatar_name, avatar_gender, channel, COUNT(*)::int AS uses, MAX(created_at) AS last_used
+     FROM publish_queue
+     WHERE avatar_name IS NOT NULL AND created_at >= $1
+     GROUP BY avatar_name, avatar_gender, channel
+     ORDER BY last_used DESC LIMIT 20`,
+    [since]
+  );
+
+  if (rows.length === 0) {
+    const result = { reviewed_at: Date.now(), avatars: [], flagged: [], compliant_count: 0, flagged_count: 0, summary: 'אין נתוני avatar_name עדיין' };
+    await pool.query(
+      `INSERT INTO tool_settings (tool,settings) VALUES ('art_review',$1) ON CONFLICT (tool) DO UPDATE SET settings=$1`,
+      [JSON.stringify(result)]
+    );
+    console.log('[ART] runArtReview: no avatar_name data yet');
+    return result;
+  }
+
+  const avatars = rows.map(row => {
+    const name = (row.avatar_name ?? '').toLowerCase();
+    const persona = row.channel === 'signal' ? 'signal' : 'vovax';
+    const { include, exclude } = PERSONA_AVATAR[persona] ?? PERSONA_AVATAR.vovax;
+    const excludeHits = exclude.filter(w => name.includes(w));
+    const includeHits = include.filter(w => name.includes(w));
+    return {
+      name:         row.avatar_name,
+      gender:       row.avatar_gender,
+      channel:      row.channel,
+      uses:         row.uses,
+      score:        excludeHits.length > 0 ? 0 : includeHits.length,
+      flagged:      excludeHits.length > 0,
+      exclude_hits: excludeHits,
+      include_hits: includeHits,
+    };
+  });
+
+  const flagged   = avatars.filter(a => a.flagged);
+  const compliant = avatars.filter(a => !a.flagged);
+  const result = {
+    reviewed_at:     Date.now(),
+    avatars,
+    flagged,
+    compliant_count: compliant.length,
+    flagged_count:   flagged.length,
+    summary: flagged.length === 0
+      ? `כל ${avatars.length} האווטארים תואמים לסטנדרט אלה`
+      : `${flagged.length} אווטארים לא עומדים בסטנדרט: ${flagged.map(a => a.name).join(', ')}`,
+  };
+
+  await pool.query(
+    `INSERT INTO tool_settings (tool,settings) VALUES ('art_review',$1) ON CONFLICT (tool) DO UPDATE SET settings=$1`,
+    [JSON.stringify(result)]
+  );
+  console.log(`[ART] runArtReview: ${avatars.length} reviewed, ${flagged.length} flagged`);
+  return result;
+}
 
 // ─── History ─────────────────────────────────────────────────────────────────
 

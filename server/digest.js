@@ -545,16 +545,19 @@ export async function buildDigestHtml() {
     ? ` — <span class="warn">${totalPending} ממתינות לאישורך</span>`
     : ' — <span class="ok">הכל נקי ✓</span>';
 
-  // ART stats — videos ready in last 24h
+  // ART stats — videos ready in last 24h + casting standards review
   let artVideos24h = 0;
   let artPending = 0;
+  let artReview = null;
   try {
-    const [artVid, artRend] = await Promise.all([
+    const [artVid, artRend, artRevRes] = await Promise.all([
       pool.query(`SELECT COUNT(*)::int AS cnt FROM publish_queue WHERE video_url IS NOT NULL AND created_at >= $1`, [since24h]),
       pool.query(`SELECT COUNT(*)::int AS cnt FROM publish_queue WHERE status='rendering'`),
+      pool.query(`SELECT settings FROM tool_settings WHERE tool='art_review'`),
     ]);
     artVideos24h = artVid.rows[0]?.cnt ?? 0;
     artPending   = artRend.rows[0]?.cnt ?? 0;
+    artReview    = artRevRes.rows[0]?.settings ?? null;
   } catch {}
 
   // Sales stats — upcoming gigs + fee pipeline
@@ -593,11 +596,34 @@ ${renderPendingApprovals(pendingApprovals)}
 <h2>QA היום — <span class="count">${qaToday.length}</span> בדיקות</h2>
 ${renderQaStats(qaToday)}
 
-<h2>🎨 ART — פלט ויזואלי</h2>
-<p style="font-size:13px;margin:0 0 6px">
-  ${artVideos24h > 0 ? `<span class="ok">● ${artVideos24h} וידאו הושלמו ב-24 שעות האחרונות</span>` : `<span class="muted">● אין וידאו חדשים ב-24 שעות האחרונות</span>`}
-  ${artPending > 0 ? ` <span class="warn">· ${artPending} ב-render עכשיו ⏳</span>` : ''}
-</p>
+<h2>🎨 ART — פלט ויזואלי + ליהוק (אלה)</h2>
+${(() => {
+  let html = `<p style="font-size:13px;margin:0 0 6px">
+    ${artVideos24h > 0 ? `<span class="ok">● ${artVideos24h} וידאו הושלמו ב-24 שעות האחרונות</span>` : `<span class="muted">● אין וידאו חדשים ב-24 שעות האחרונות</span>`}
+    ${artPending > 0 ? ` <span class="warn">· ${artPending} ב-render עכשיו ⏳</span>` : ''}
+  </p>`;
+  if (!artReview) {
+    html += `<p class="empty muted">ביקורת ליהוק (אלה) — טרם הורצה (07:30 בבוקר א'–ה')</p>`;
+  } else {
+    const rev = typeof artReview === 'string' ? JSON.parse(artReview) : artReview;
+    const flaggedCount   = rev.flagged_count ?? 0;
+    const compliantCount = rev.compliant_count ?? 0;
+    const total          = flaggedCount + compliantCount;
+    const reviewedAt     = rev.reviewed_at ? fmtTimeMs(rev.reviewed_at) : '';
+    const statusClr      = flaggedCount > 0 ? '#FFB347' : '#4CAF50';
+    html += `<p style="font-size:13px;margin:3px 0"><span style="color:${statusClr}">●</span> ${rev.summary ?? ''}
+      <span class="muted" style="font-size:11px"> · ביקורת אלה ${reviewedAt}</span></p>`;
+    if (flaggedCount > 0 && rev.flagged?.length > 0) {
+      html += `<div style="margin:4px 0">` + rev.flagged.map(a =>
+        `<div class="pending-item" style="border-right:2px solid #FFB34766">
+          <div><span class="warn">⚠</span> <strong>${a.name}</strong> <span class="muted">(${a.channel} · ${a.gender ?? '?'})</span></div>
+          <div class="pending-meta">מילים בעייתיות: ${a.exclude_hits.join(', ')}</div>
+        </div>`
+      ).join('') + `</div>`;
+    }
+  }
+  return html;
+})()}
 
 <h2>💼 מכירות — פייפליין</h2>
 <p style="font-size:13px;margin:0 0 6px">

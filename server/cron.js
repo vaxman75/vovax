@@ -1,7 +1,7 @@
 import cron from 'node-cron';
 import { Resend } from 'resend';
 import { buildDigestHtml, buildWeeklyDigestHtml } from './digest.js';
-import { checkHeyGenRender, sendPendingNotification } from './routes/publish.js';
+import { checkHeyGenRender, sendPendingNotification, runArtReview } from './routes/publish.js';
 import { pollMusicGeneration, runMusicCycle } from './routes/music.js';
 import pool from './db/index.js';
 
@@ -15,6 +15,13 @@ export function startCron() {
     try { await pollMusicGeneration(); }
     catch (e) { console.error('Cron: music poll error:', e.message); }
   });
+
+  // ── ART casting review — אלה scores recent avatar names (Sun–Thu 07:30) ─────
+  cron.schedule('30 7 * * 0,1,2,3,4', async () => {
+    console.log('Cron[ART/אלה]: running avatar casting standards review...');
+    try { await runArtReview(); }
+    catch (e) { console.error('Cron: ART review error:', e.message); }
+  }, { timezone: 'Asia/Jerusalem' });
 
   // ── Autonomous music cycle — fills weekly quota (Sun–Thu 10:00 + 16:00) ────
   cron.schedule('0 10,16 * * 0,1,2,3,4', async () => {
@@ -107,5 +114,5 @@ export function startCron() {
     sendEmail(`VOVAX · בריף שבועי — ${israelDate()}`, buildWeeklyDigestHtml);
   }, { timezone: 'Asia/Jerusalem' });
 
-  console.log('Cron: music poll+cycle, HeyGen poll, daily digest (Sun–Thu 08:00), weekly brief (Fri 08:00) — Israel time');
+  console.log('Cron: ART review (07:30), music poll+cycle (10:00+16:00), HeyGen poll, daily digest (08:00), weekly brief (Fri 08:00) — Israel time');
 }
