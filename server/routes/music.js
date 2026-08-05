@@ -18,7 +18,7 @@ function loadSkill(filename) {
   catch { return ''; }
 }
 
-// ── Prompt builder (mirrors AceStep.jsx client logic) ─────────────────────────
+// ── Variation pools ───────────────────────────────────────────────────────────
 
 const CONTEXT_MAP = {
   peak:       { bpm: 127, energy: 'peak-hour energy, maximum floor impact, relentless drive, tension never fully releasing' },
@@ -28,6 +28,48 @@ const CONTEXT_MAP = {
 };
 
 const PLATFORM_SECS = { tiktok: 120, spotify: 180, soundcloud: 210, club: 240 };
+
+const CONTEXT_ROTATION   = ['peak', 'opening', 'chill', 'peak', 'opening'];
+const PLATFORM_ROTATION  = ['spotify', 'soundcloud', 'spotify', 'club'];
+const WEIRDNESS_ROTATION = [0, 0, 20, 0, 35];
+
+const MOOD_POOL = [
+  'מסתורי ועמוק', 'בונה לקליימקס', 'מתח מתמשך', 'חלומי ואפל',
+  'נוסטלגי', 'מלנכולי', 'עוצמתי ובלתי פוסק', 'שקט לפני הסערה',
+  'אורבני ומדוכא', 'מרחב פתוח ואינסופי',
+];
+
+const KEY_POOL = [
+  'G minor', 'A minor', 'D minor', 'F# minor', 'C# minor', 'B minor',
+];
+
+const BASSLINE_POOL = [
+  'rolling hypnotic bassline',
+  'punching staccato bassline with filter envelope',
+  'deep sub crawl with slow attack',
+  'gliding legato bass with portamento slides',
+  'rhythmic pumping bass locked to the kick',
+  'dark walking bassline with harmonic movement',
+];
+
+const PAD_POOL = [
+  'dark atmospheric pads',
+  'evolving cinematic string pads',
+  'cold metallic drone textures',
+  'wide reverb-soaked chord pads with slow attack',
+  'ghostly filtered pad layers breathing with LFO',
+  'ominous sustained synth textures',
+];
+
+const KICK_POOL = [
+  'driving four-on-the-floor kick',
+  'weighty kick with long sub tail',
+  'industrial stripped-back kick pattern',
+  'heavy layered kick with tight transient click',
+  'relentless mechanical kick with slight swing',
+];
+
+// ── Prompt builder ────────────────────────────────────────────────────────────
 
 function energyPrompt(v) {
   if (v <= 25) return 'low-energy atmospheric breakdown, minimal percussion, wide meditative ambient space';
@@ -44,12 +86,17 @@ function weirdnessPrompt(v) {
   return 'chaotic glitch elements, industrial noise, avant-garde deconstructed structure';
 }
 
-function buildPrompt({ contextHour, bpmOverride, weirdness = 0, energyLevel, mood = '' }) {
-  const effectiveBpm = bpmOverride ?? CONTEXT_MAP[contextHour]?.bpm ?? 124;
-  const contextEnergy = CONTEXT_MAP[contextHour]?.energy ?? '';
+function buildPrompt({
+  contextHour, bpmOverride, weirdness = 0, energyLevel, mood = '',
+  key = 'G minor',
+  bassline = 'rolling hypnotic bassline',
+  pad = 'dark atmospheric pads',
+  kick = 'driving four-on-the-floor kick',
+}) {
+  const effectiveBpm    = bpmOverride ?? CONTEXT_MAP[contextHour]?.bpm ?? 124;
+  const contextEnergy   = CONTEXT_MAP[contextHour]?.energy ?? '';
   const parts = [
-    'Heavy melodic techno', `${effectiveBpm} BPM`, 'G minor',
-    'rolling hypnotic bassline', 'dark atmospheric pads', 'driving four-on-the-floor kick',
+    'Heavy melodic techno', `${effectiveBpm} BPM`, key, bassline, pad, kick,
   ];
   const ep = energyLevel != null ? energyPrompt(energyLevel) : contextEnergy;
   if (ep) parts.push(ep);
@@ -62,17 +109,10 @@ function buildPrompt({ contextHour, bpmOverride, weirdness = 0, energyLevel, moo
 
 // ── עמית's briefing — autonomous parameter selection ─────────────────────────
 
-const CONTEXT_ROTATION = ['peak', 'opening', 'chill', 'peak', 'opening'];
-const PLATFORM_ROTATION = ['spotify', 'soundcloud', 'spotify', 'club'];
-const MOOD_POOL = [
-  'מסתורי ועמוק', 'בונה לקליימקס', 'מתח מתמשך', 'חלומי ואפל',
-  'נוסטלגי', 'מלנכולי', 'עוצמתי ובלתי פוסק', 'שקט לפני הסערה',
-  'אורבני ומדוכא', 'מרחב פתוח ואינסופי',
-];
-
 async function amitBrief() {
   const { rows: recent } = await pool.query(
-    `SELECT context_hour, platform, mood FROM music_queue
+    `SELECT context_hour, platform, mood, key_signature, bassline_desc, pad_desc, kick_desc, weirdness
+     FROM music_queue
      WHERE created_at > $1 AND status != 'failed' ORDER BY created_at DESC LIMIT 12`,
     [Date.now() - 14 * 24 * 3600000]
   );
@@ -80,6 +120,11 @@ async function amitBrief() {
   const usedContexts  = new Set(recent.map(r => r.context_hour).filter(Boolean));
   const usedPlatforms = new Set(recent.map(r => r.platform).filter(Boolean));
   const usedMoods     = new Set(recent.map(r => r.mood).filter(Boolean));
+  const usedKeys      = new Set(recent.map(r => r.key_signature).filter(Boolean));
+  const usedBasslines = new Set(recent.map(r => r.bassline_desc).filter(Boolean));
+  const usedPads      = new Set(recent.map(r => r.pad_desc).filter(Boolean));
+  const usedKicks     = new Set(recent.map(r => r.kick_desc).filter(Boolean));
+  const usedWeirdness = recent.map(r => r.weirdness ?? 0);
 
   const contextHour = CONTEXT_ROTATION.find(c => !usedContexts.has(c))
     ?? CONTEXT_ROTATION[Math.floor(Math.random() * CONTEXT_ROTATION.length)];
@@ -87,14 +132,22 @@ async function amitBrief() {
     ?? PLATFORM_ROTATION[Math.floor(Math.random() * PLATFORM_ROTATION.length)];
   const mood = MOOD_POOL.find(m => !usedMoods.has(m))
     ?? MOOD_POOL[Math.floor(Math.random() * MOOD_POOL.length)];
+  const key = KEY_POOL.find(k => !usedKeys.has(k))
+    ?? KEY_POOL[Math.floor(Math.random() * KEY_POOL.length)];
+  const bassline = BASSLINE_POOL.find(b => !usedBasslines.has(b))
+    ?? BASSLINE_POOL[Math.floor(Math.random() * BASSLINE_POOL.length)];
+  const pad = PAD_POOL.find(p => !usedPads.has(p))
+    ?? PAD_POOL[Math.floor(Math.random() * PAD_POOL.length)];
+  const kick = KICK_POOL.find(k => !usedKicks.has(k))
+    ?? KICK_POOL[Math.floor(Math.random() * KICK_POOL.length)];
+  const weirdness = WEIRDNESS_ROTATION.find(w => !usedWeirdness.includes(w)) ?? 0;
 
-  const bpm = CONTEXT_MAP[contextHour]?.bpm ?? 124;
-  const weirdness = 0;
+  const bpm         = CONTEXT_MAP[contextHour]?.bpm ?? 124;
   const energyLevel = contextHour === 'peak' ? 85 : contextHour === 'opening' ? 55 : 30;
-  const duration_s = PLATFORM_SECS[platform] ?? 180;
-  const prompt = buildPrompt({ contextHour, bpmOverride: null, weirdness, energyLevel, mood });
+  const duration_s  = PLATFORM_SECS[platform] ?? 180;
+  const prompt      = buildPrompt({ contextHour, bpmOverride: null, weirdness, energyLevel, mood, key, bassline, pad, kick });
 
-  return { contextHour, platform, bpm, weirdness, energyLevel, mood, duration_s, prompt };
+  return { contextHour, platform, bpm, weirdness, energyLevel, mood, duration_s, prompt, key, bassline, pad, kick };
 }
 
 // ── Generation trigger ────────────────────────────────────────────────────────
@@ -103,7 +156,12 @@ async function triggerGeneration(params, regenFrom = null, regenCount = 0) {
   const apiKey = process.env.PIXAZO_API_KEY;
   if (!apiKey) throw new Error('PIXAZO_API_KEY not set');
 
-  const { contextHour, platform, bpm, weirdness = 0, energyLevel, mood = '', duration_s = 180, prompt } = params;
+  const {
+    contextHour, platform, bpm, weirdness = 0, energyLevel, mood = '',
+    duration_s = 180, prompt,
+    key = 'G minor', bassline = 'rolling hypnotic bassline',
+    pad = 'dark atmospheric pads', kick = 'driving four-on-the-floor kick',
+  } = params;
   const id  = uid();
   const now = Date.now();
 
@@ -120,13 +178,14 @@ async function triggerGeneration(params, regenFrom = null, regenCount = 0) {
   await pool.query(
     `INSERT INTO music_queue
      (id,status,request_id,prompt,duration_s,bpm,model,batch_size,context_hour,platform,mood,
-      weirdness,energy_level,rejection_count,regenerated_from,created_at,updated_at)
-     VALUES($1,'generating',$2,$3,$4,$5,'ace-step-xl',1,$6,$7,$8,$9,$10,$11,$12,$13,$13)`,
+      weirdness,energy_level,key_signature,bassline_desc,pad_desc,kick_desc,
+      rejection_count,regenerated_from,created_at,updated_at)
+     VALUES($1,'generating',$2,$3,$4,$5,'ace-step-xl',1,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$17)`,
     [id, data.request_id, prompt, duration_s, bpm, contextHour, platform, mood,
-     weirdness, energyLevel, regenCount, regenFrom, now]
+     weirdness, energyLevel, key, bassline, pad, kick, regenCount, regenFrom, now]
   );
 
-  console.log(`Music[עמית]: triggered ${id} | context=${contextHour} platform=${platform} bpm=${bpm} mood="${mood}"`);
+  console.log(`Music[עמית]: triggered ${id} | context=${contextHour} platform=${platform} bpm=${bpm} key="${key}" mood="${mood}"`);
   return id;
 }
 
@@ -177,9 +236,10 @@ async function runTaliaQA(item) {
 
   const urls = item.audio_urls ?? [];
   const briefLines = [
-    item.mood        && `Mood/intent: ${item.mood}`,
+    item.mood         && `Mood/intent: ${item.mood}`,
     item.context_hour && `Context: ${item.context_hour} set`,
-    item.platform    && `Target platform: ${item.platform}`,
+    item.platform     && `Target platform: ${item.platform}`,
+    item.key_signature && `Key: ${item.key_signature}`,
   ].filter(Boolean).join('\n');
 
   const system = `You are טליה, QA specialist at VOVAX. Evaluate AI-generated music against VOVAX quality criteria.
@@ -227,7 +287,7 @@ async function runAmitGate(item) {
 ## הוראת תגובה — Manager Gate (Mandatory)
 אתה מבצע שער מנהל חובה לפני שפריט מגיע לבעלים.
 בדוק ארבעה ממדים:
-1. האם הפרומפט מייצג את רמת המותג של VOVAX? (אסתטיקה, heavy melodic techno, G minor)
+1. האם הפרומפט מייצג את רמת המותג של VOVAX? (אסתטיקה, heavy melodic techno)
 2. האם פסיקת טליה לגבי style fit ו-originality תואמת לסטנדרט שלך?
 3. האם אתה כמנהל המחלקה מוכן לשים את שמך על הפריט הזה?
 4. האם זה עומד בסטנדרט "מהטובים ביותר בעולם" — לא "מספיק טוב"?
@@ -237,7 +297,7 @@ async function runAmitGate(item) {
   const userMsg = `פריט לשער מנהל:
 פרומפט: ${item.prompt}
 הקשר: ${item.context_hour ?? '?'} · פלטפורמה: ${item.platform ?? '?'} · BPM: ${item.bpm ?? '?'} · אורך: ${item.duration_s ?? '?'}s
-מצב רוח: ${item.mood ?? '?'}
+מצב רוח: ${item.mood ?? '?'} · טונאליות: ${item.key_signature ?? '?'}
 
 פסיקת טליה: ${item.talia_verdict ?? 'לא רץ'}
 תקציר: ${talia.summary ?? '—'}
@@ -288,9 +348,18 @@ async function maybeRegenerate(item, reason) {
   console.log(`Music: regen #${rejCount} for ${item.id} — ${reason}`);
   try {
     const params = {
-      contextHour: item.context_hour, platform: item.platform, bpm: item.bpm,
-      weirdness: item.weirdness ?? 0, energyLevel: item.energy_level,
-      mood: item.mood ?? '', duration_s: item.duration_s ?? 180, prompt: item.prompt,
+      contextHour:  item.context_hour,
+      platform:     item.platform,
+      bpm:          item.bpm,
+      weirdness:    item.weirdness ?? 0,
+      energyLevel:  item.energy_level,
+      mood:         item.mood ?? '',
+      duration_s:   item.duration_s ?? 180,
+      prompt:       item.prompt,
+      key:          item.key_signature ?? 'G minor',
+      bassline:     item.bassline_desc ?? 'rolling hypnotic bassline',
+      pad:          item.pad_desc      ?? 'dark atmospheric pads',
+      kick:         item.kick_desc     ?? 'driving four-on-the-floor kick',
     };
     await triggerGeneration(params, item.id, rejCount);
   } catch (e) {
@@ -318,7 +387,7 @@ export async function runMusicCycle() {
   }
   console.log(`Music[עמית]: below quota (${thisWeek}/${weeklyTarget}) — initiating generation`);
   const params = await amitBrief();
-  console.log(`Music[עמית]: brief → context=${params.contextHour} platform=${params.platform} bpm=${params.bpm} mood="${params.mood}"`);
+  console.log(`Music[עמית]: brief → context=${params.contextHour} platform=${params.platform} bpm=${params.bpm} key="${params.key}" mood="${params.mood}"`);
   await triggerGeneration(params);
 }
 
@@ -328,6 +397,14 @@ router.get('/queue', requireAuth, async (_req, res) => {
   try {
     const { rows } = await pool.query(`SELECT * FROM music_queue ORDER BY created_at DESC LIMIT 50`);
     res.json({ items: rows });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Preview what the next brief would be — no generation triggered, no DB write
+router.get('/brief-preview', requireAuth, async (_req, res) => {
+  try {
+    const params = await amitBrief();
+    res.json({ brief: params });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
