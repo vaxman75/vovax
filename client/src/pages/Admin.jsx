@@ -837,6 +837,147 @@ function MusicPage({ employees }) {
   );
 }
 
+// ── Personal Core page ────────────────────────────────────────────────────────
+
+function PersonalPage({ employees }) {
+  const [deptData, setDeptData] = useState(null);
+  const [loadErr,  setLoadErr]  = useState('');
+
+  useEffect(() => {
+    fetch(`${API}/api/admin/dept/personal`, { headers: authHdr() })
+      .then(r => r.ok ? r.json() : Promise.reject(r.status))
+      .then(setDeptData)
+      .catch(e => setLoadErr(String(e)));
+  }, []);
+
+  const tasks   = deptData?.tasks   ?? { active: [], waiting: [], someday: [], done: [] };
+  const gigs    = deptData?.gigs    ?? [];
+  const manager = employees.find(e => !e.manager);
+  const today   = new Date().toISOString().slice(0, 10);
+  const upcoming = gigs.filter(g => g.date >= today);
+  const past     = gigs.filter(g => g.date < today);
+
+  const SECTION_META = {
+    active:  { label: 'פעיל',   color: '#46C7FF' },
+    waiting: { label: 'ממתין',  color: '#FFB347' },
+    someday: { label: 'יום אחד', color: '#8B8A85' },
+    done:    { label: 'הושלם',  color: '#4CAF50' },
+  };
+
+  const totalOpen = tasks.active.length + tasks.waiting.length + tasks.someday.length;
+
+  return (
+    <div dir="rtl" style={{ padding: '24px 28px' }}>
+      <h1 style={{ color: '#F2F1ED', fontSize: 20, margin: '0 0 4px' }}>👤 ליבה אישית</h1>
+      <p style={{ color: '#555', fontSize: 12, margin: '0 0 20px' }}>
+        {employees.length} עובדים{manager ? ` — ${manager.name} (מנהל)` : ''}
+      </p>
+
+      {/* Employee roster */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 6, marginBottom: 28 }}>
+        {employees.map(e => (
+          <div key={e.id} style={{ background: '#131316', border: '1px solid #1a1a1d', borderRadius: 8, padding: '10px 12px' }}>
+            <div style={{ color: '#F2F1ED', fontSize: 12, fontWeight: 600 }}>{e.name}</div>
+            <div style={{ color: '#555', fontSize: 10 }}>{e.role}</div>
+          </div>
+        ))}
+      </div>
+
+      {loadErr && <p style={{ color: '#FF4444', fontSize: 13 }}>שגיאה: {loadErr}</p>}
+      {!deptData && !loadErr && <p style={{ color: '#555', fontSize: 13 }}>טוען…</p>}
+
+      {/* Tasks — נועה */}
+      {deptData && (
+        <>
+          <h2 style={{ color: '#8B8A85', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.1em', margin: '0 0 12px' }}>
+            משימות (נועה) — {totalOpen} פתוחות · {tasks.done.length} הושלמו
+          </h2>
+
+          {['active', 'waiting', 'someday'].map(section => {
+            const items = tasks[section];
+            if (!items.length) return null;
+            const { label, color } = SECTION_META[section];
+            return (
+              <div key={section} style={{ marginBottom: 14 }}>
+                <div style={{ color, fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 6 }}>
+                  {label} — {items.length}
+                </div>
+                {items.map(t => (
+                  <div key={t.id} style={{ background: '#131316', border: '1px solid #1a1a1d', borderRadius: 6, padding: '7px 12px', marginBottom: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ color: '#F2F1ED', fontSize: 12 }}>{t.title}</span>
+                    <span style={{ color: '#333', fontSize: 10, whiteSpace: 'nowrap', marginRight: 8 }}>{fmtDate(t.added)}</span>
+                  </div>
+                ))}
+              </div>
+            );
+          })}
+
+          {tasks.done.length > 0 && (
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ color: '#4CAF50', fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 6 }}>
+                הושלמו — {tasks.done.length}
+              </div>
+              {tasks.done.slice(0, 5).map(t => (
+                <div key={t.id} style={{ background: '#0D120D', border: '1px solid #1a2a1a', borderRadius: 6, padding: '7px 12px', marginBottom: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'center', opacity: 0.65 }}>
+                  <span style={{ color: '#8B8A85', fontSize: 12 }}>{t.title}</span>
+                  <span style={{ color: '#333', fontSize: 10, whiteSpace: 'nowrap', marginRight: 8 }}>{t.completed ? fmtDate(t.completed) : ''}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {totalOpen === 0 && tasks.done.length === 0 && (
+            <p style={{ color: '#555', fontSize: 13, marginBottom: 20 }}>אין משימות עדיין</p>
+          )}
+
+          {/* Gigs — מתן */}
+          <h2 style={{ color: '#8B8A85', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.1em', margin: '8px 0 12px' }}>
+            הופעות (מתן) — {upcoming.length} קרובות{past.length > 0 ? ` · ${past.length} עברו` : ''}
+          </h2>
+
+          {upcoming.length === 0 && past.length === 0 && (
+            <p style={{ color: '#555', fontSize: 13, marginBottom: 20 }}>אין הופעות רשומות</p>
+          )}
+
+          {upcoming.map(g => (
+            <div key={g.id} style={{ background: '#131316', border: '1px solid #1a2a1a', borderRadius: 8, padding: '10px 14px', marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <div>
+                <div style={{ color: '#46C7FF', fontSize: 11, marginBottom: 2 }}>{g.date}</div>
+                <div style={{ color: '#F2F1ED', fontSize: 13, fontWeight: 600 }}>{g.venue}</div>
+                {g.city && <div style={{ color: '#555', fontSize: 11 }}>{g.city}</div>}
+                {g.slotType && <div style={{ color: '#8B8A85', fontSize: 10 }}>{g.slotType}{g.startTime ? ` · ${g.startTime}` : ''}</div>}
+              </div>
+              {g.fee && <div style={{ color: '#4CAF50', fontSize: 12, fontWeight: 600 }}>₪{Number(g.fee).toLocaleString()}</div>}
+            </div>
+          ))}
+
+          {past.length > 0 && (
+            <>
+              <div style={{ color: '#333', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', margin: '12px 0 8px' }}>עבר</div>
+              {past.slice(-3).reverse().map(g => (
+                <div key={g.id} style={{ background: '#0D0D10', border: '1px solid #1a1a1d', borderRadius: 8, padding: '8px 12px', marginBottom: 6, opacity: 0.5, display: 'flex', justifyContent: 'space-between' }}>
+                  <div>
+                    <div style={{ color: '#555', fontSize: 11 }}>{g.date}</div>
+                    <div style={{ color: '#8B8A85', fontSize: 12 }}>{g.venue}{g.city ? `, ${g.city}` : ''}</div>
+                  </div>
+                </div>
+              ))}
+            </>
+          )}
+
+          {/* Email / Calendar — not integrated yet */}
+          <h2 style={{ color: '#8B8A85', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.1em', margin: '20px 0 10px' }}>
+            אימייל (מאיה) · לוח שנה (תומר)
+          </h2>
+          <div style={{ background: '#131316', border: '1px solid #1a1a1d', borderRadius: 8, padding: '12px 16px' }}>
+            <p style={{ color: '#555', fontSize: 12, margin: 0 }}>בקרוב — ממתין לחיבור Gmail + Google Calendar (Task #6)</p>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 // ── Generic department page ───────────────────────────────────────────────────
 
 function GenericDeptPage({ deptKey, employees }) {
@@ -1010,6 +1151,7 @@ export default function Admin() {
     if (deptKey === 'brand')       return <BrandPage employees={deptEmployees} />;
     if (deptKey === 'distribution') return <DistributionPage employees={deptEmployees} />;
     if (deptKey === 'music')       return <MusicPage employees={deptEmployees} />;
+    if (deptKey === 'personal')    return <PersonalPage employees={deptEmployees} />;
     return <GenericDeptPage deptKey={deptKey} employees={deptEmployees} />;
   }
 

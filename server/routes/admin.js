@@ -234,6 +234,24 @@ router.get('/dept/:name', requireAuth, async (req, res) => {
       extra = { tracks: tracksRes.rows, recent: pubRes.rows, musicQueue: mqRes.rows };
     }
 
+    if (name === 'personal') {
+      const [tasksRes, gigsRes] = await Promise.all([
+        pool.query(`SELECT * FROM tasks ORDER BY added_at ASC`),
+        pool.query(`SELECT * FROM gigs ORDER BY date ASC`),
+      ]);
+      const tasks = { active: [], waiting: [], someday: [], done: [] };
+      for (const row of tasksRes.rows) {
+        const bucket = tasks[row.section] ? row.section : 'active';
+        tasks[bucket].push({ id: row.id, title: row.title, added: row.added_at, completed: row.completed_at ?? null });
+      }
+      const gigs = gigsRes.rows.map(r => {
+        let meta = {};
+        try { if (r.notes?.startsWith('{')) meta = JSON.parse(r.notes); } catch {}
+        return { id: r.id, date: r.date, venue: r.venue, city: r.city ?? '', ...meta };
+      });
+      extra = { tasks, gigs };
+    }
+
     res.json({ employees, ...extra });
   } catch (err) {
     res.status(500).json({ error: err.message });
