@@ -837,6 +837,141 @@ function MusicPage({ employees }) {
   );
 }
 
+// ── Sales page ────────────────────────────────────────────────────────────────
+
+function SalesPage({ employees }) {
+  const [deptData, setDeptData] = useState(null);
+  const [loadErr,  setLoadErr]  = useState('');
+
+  useEffect(() => {
+    fetch(`${API}/api/admin/dept/sales`, { headers: authHdr() })
+      .then(r => r.ok ? r.json() : Promise.reject(r.status))
+      .then(setDeptData)
+      .catch(e => setLoadErr(String(e)));
+  }, []);
+
+  const gigsUpcoming = deptData?.gigsUpcoming ?? [];
+  const gigsPast     = deptData?.gigsPast     ?? [];
+  const topTracks    = deptData?.topTracks    ?? [];
+  const pubStats     = deptData?.pubStats     ?? { published: 0, published_30d: 0 };
+  const totalFee     = gigsUpcoming.reduce((s, g) => s + (Number(g.fee) || 0), 0);
+
+  return (
+    <div dir="rtl" style={{ padding: '24px 28px' }}>
+      <h1 style={{ color: '#F2F1ED', fontSize: 20, margin: '0 0 4px' }}>💼 מכירות ולייבלים</h1>
+      <p style={{ color: '#555', fontSize: 12, margin: '0 0 20px' }}>
+        {employees.length} עובדים — רז (מנהל)
+      </p>
+
+      {/* Roster */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 6, marginBottom: 28 }}>
+        {employees.map(e => (
+          <div key={e.id} style={{ background: '#131316', border: '1px solid #1a1a1d', borderRadius: 8, padding: '10px 12px' }}>
+            <div style={{ color: '#F2F1ED', fontSize: 12, fontWeight: 600 }}>{e.name}</div>
+            <div style={{ color: '#555', fontSize: 10 }}>{e.role}</div>
+          </div>
+        ))}
+      </div>
+
+      {loadErr && <p style={{ color: '#FF4444', fontSize: 13 }}>שגיאה: {loadErr}</p>}
+      {!deptData && !loadErr && <p style={{ color: '#555', fontSize: 13 }}>טוען…</p>}
+
+      {deptData && (
+        <>
+          {/* Snapshot */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 28 }}>
+            {[
+              { label: 'הופעות קרובות',     value: gigsUpcoming.length,          color: '#46C7FF' },
+              { label: 'הכנסות צפויות',     value: totalFee > 0 ? `₪${totalFee.toLocaleString()}` : '—', color: '#4CAF50' },
+              { label: 'וידאו פורסמו סה"כ', value: pubStats.published,           color: '#FFB347' },
+              { label: 'טראקים לפיץ׳',      value: topTracks.length,             color: '#8B8A85' },
+            ].map(s => (
+              <div key={s.label} style={{ background: '#131316', border: '1px solid #1a1a1d', borderRadius: 8, padding: '12px 14px' }}>
+                <div style={{ color: s.color, fontSize: 18, fontWeight: 700, marginBottom: 2 }}>{s.value}</div>
+                <div style={{ color: '#555', fontSize: 11 }}>{s.label}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Gig pipeline — קרן */}
+          <h2 style={{ color: '#8B8A85', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.1em', margin: '0 0 12px' }}>
+            פייפליין הופעות (קרן) — {gigsUpcoming.length} קרובות
+          </h2>
+
+          {gigsUpcoming.length === 0 && (
+            <p style={{ color: '#555', fontSize: 13, marginBottom: 20 }}>אין הופעות קרובות</p>
+          )}
+
+          {gigsUpcoming.map(g => (
+            <div key={g.id} style={{ background: '#131316', border: '1px solid #1a2a1a', borderRadius: 8, padding: '10px 14px', marginBottom: 6, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <div style={{ color: '#46C7FF', fontSize: 10, marginBottom: 2 }}>{g.date}</div>
+                <div style={{ color: '#F2F1ED', fontSize: 13, fontWeight: 600 }}>{g.venue}</div>
+                {g.city && <div style={{ color: '#555', fontSize: 11 }}>{g.city}</div>}
+                {(g.slotType || g.startTime) && (
+                  <div style={{ color: '#8B8A85', fontSize: 10 }}>
+                    {g.slotType}{g.startTime ? ` · ${g.startTime}` : ''}
+                  </div>
+                )}
+              </div>
+              <div style={{ textAlign: 'left' }}>
+                {g.fee
+                  ? <div style={{ color: '#4CAF50', fontSize: 14, fontWeight: 700 }}>₪{Number(g.fee).toLocaleString()}</div>
+                  : <div style={{ color: '#333', fontSize: 12 }}>טרם תומחר</div>
+                }
+                {g.setStatus && <div style={{ color: '#555', fontSize: 10, marginTop: 2 }}>{g.setStatus}</div>}
+              </div>
+            </div>
+          ))}
+
+          {gigsPast.length > 0 && (
+            <div style={{ marginBottom: 24 }}>
+              <div style={{ color: '#333', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', margin: '12px 0 8px' }}>
+                עבר — {gigsPast.length}
+              </div>
+              {gigsPast.slice(-3).reverse().map(g => (
+                <div key={g.id} style={{ background: '#0D0D10', border: '1px solid #1a1a1d', borderRadius: 6, padding: '7px 12px', marginBottom: 4, opacity: 0.5, display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: '#8B8A85', fontSize: 12 }}>{g.venue}{g.city ? `, ${g.city}` : ''}</span>
+                  <span style={{ color: '#555', fontSize: 11 }}>{g.date}{g.fee ? ` · ₪${Number(g.fee).toLocaleString()}` : ''}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Top tracks for label pitches — איתן */}
+          <h2 style={{ color: '#8B8A85', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.1em', margin: '8px 0 12px' }}>
+            טראקים לפיץ׳ ללייבלים (איתן) — Top {topTracks.length} לפי השמעות
+          </h2>
+
+          {topTracks.length === 0 && (
+            <p style={{ color: '#555', fontSize: 13 }}>אין טראקים ב-DB</p>
+          )}
+
+          <div style={{ background: '#0D0D10', border: '1px solid #1a1a1d', borderRadius: 8, overflow: 'hidden' }}>
+            {topTracks.map((t, i) => (
+              <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', borderBottom: i < topTracks.length - 1 ? '1px solid #131316' : 'none' }}>
+                <span style={{ color: '#333', fontSize: 11, width: 18, textAlign: 'left', flexShrink: 0 }}>{i + 1}</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ color: '#F2F1ED', fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {t.permalink_url
+                      ? <a href={t.permalink_url} target="_blank" rel="noreferrer" style={{ color: '#F2F1ED', textDecoration: 'none' }}>{t.title}</a>
+                      : t.title}
+                  </div>
+                  {t.genre && <div style={{ color: '#555', fontSize: 10 }}>{t.genre}</div>}
+                </div>
+                {t.durationFmt && <span style={{ color: '#555', fontSize: 10, flexShrink: 0 }}>{t.durationFmt}</span>}
+                <span style={{ color: t.play_count > 1000 ? '#4CAF50' : '#8B8A85', fontSize: 11, fontWeight: 600, flexShrink: 0, minWidth: 50, textAlign: 'right' }}>
+                  {(t.play_count ?? 0).toLocaleString()}
+                </span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 // ── Art & Visual page ─────────────────────────────────────────────────────────
 
 function ArtPage({ employees }) {
@@ -1353,6 +1488,7 @@ export default function Admin() {
     if (deptKey === 'brand')       return <BrandPage employees={deptEmployees} />;
     if (deptKey === 'distribution') return <DistributionPage employees={deptEmployees} />;
     if (deptKey === 'music')       return <MusicPage employees={deptEmployees} />;
+    if (deptKey === 'sales')       return <SalesPage employees={deptEmployees} />;
     if (deptKey === 'art')         return <ArtPage employees={deptEmployees} />;
     if (deptKey === 'finance')     return <FinancePage employees={deptEmployees} />;
     if (deptKey === 'personal')    return <PersonalPage employees={deptEmployees} />;

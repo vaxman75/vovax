@@ -234,6 +234,35 @@ router.get('/dept/:name', requireAuth, async (req, res) => {
       extra = { tracks: tracksRes.rows, recent: pubRes.rows, musicQueue: mqRes.rows };
     }
 
+    if (name === 'sales') {
+      const [gigsRes, topTracksRes, pubStatsRes] = await Promise.all([
+        pool.query(`SELECT * FROM gigs ORDER BY date ASC`),
+        pool.query(`SELECT id, title, genre, play_count, permalink_url, duration_ms
+                    FROM tracks ORDER BY play_count DESC LIMIT 15`),
+        pool.query(`SELECT
+                      COUNT(*) FILTER (WHERE status='published')::int AS published,
+                      COUNT(*) FILTER (WHERE status='published' AND created_at > $1)::int AS published_30d
+                    FROM publish_queue`,
+          [Date.now() - 30 * 24 * 3600000]),
+      ]);
+
+      const today = new Date().toISOString().slice(0, 10);
+      const gigs  = gigsRes.rows.map(r => {
+        let meta = {};
+        try { if (r.notes?.startsWith('{')) meta = JSON.parse(r.notes); } catch {}
+        return { id: r.id, date: r.date, venue: r.venue, city: r.city ?? '', ...meta };
+      });
+      const fmtDur = ms => ms ? `${Math.floor(ms/60000)}:${String(Math.floor((ms%60000)/1000)).padStart(2,'0')}` : null;
+      const topTracks = topTracksRes.rows.map(r => ({ ...r, durationFmt: fmtDur(r.duration_ms) }));
+
+      extra = {
+        gigsUpcoming: gigs.filter(g => g.date >= today),
+        gigsPast:     gigs.filter(g => g.date < today),
+        topTracks,
+        pubStats: pubStatsRes.rows[0] ?? { published: 0, published_30d: 0 },
+      };
+    }
+
     if (name === 'art') {
       const [videosRes, statsRes] = await Promise.all([
         pool.query(
