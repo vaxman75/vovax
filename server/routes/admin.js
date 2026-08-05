@@ -88,7 +88,7 @@ const ALL_EMPLOYEES = [
 
 const DEPT_META = {
   music:        { label: 'יצירת מוזיקה',      icon: '🎵', hasData: false },
-  art:          { label: 'אמנות וויזואל',     icon: '🎨', hasData: false },
+  art:          { label: 'ART',               icon: '🎨', hasData: true  },
   publishing:   { label: 'פרסום אוטומטי',     icon: '📢', hasData: true  },
   brand:        { label: 'מותג וקול',         icon: '🔊', hasData: true  },
   distribution: { label: 'הפצה',              icon: '📡', hasData: true  },
@@ -232,6 +232,26 @@ router.get('/dept/:name', requireAuth, async (req, res) => {
         pool.query(`SELECT * FROM music_queue ORDER BY created_at DESC LIMIT 30`).catch(() => ({ rows: [] })),
       ]);
       extra = { tracks: tracksRes.rows, recent: pubRes.rows, musicQueue: mqRes.rows };
+    }
+
+    if (name === 'art') {
+      const [videosRes, statsRes] = await Promise.all([
+        pool.query(
+          `SELECT id, topic, script, video_url, avatar_gender, qa_status, created_at, status
+           FROM publish_queue
+           WHERE video_url IS NOT NULL
+           ORDER BY created_at DESC LIMIT 20`
+        ),
+        pool.query(
+          `SELECT
+             COUNT(*)::int AS total_renders,
+             COUNT(*) FILTER (WHERE status='published')::int AS published,
+             COUNT(*) FILTER (WHERE created_at > $1)::int AS this_month
+           FROM publish_queue WHERE heygen_video_id IS NOT NULL`,
+          [Date.now() - 30 * 24 * 3600000]
+        ),
+      ]);
+      extra = { videos: videosRes.rows, stats: statsRes.rows[0] ?? { total_renders: 0, published: 0, this_month: 0 } };
     }
 
     if (name === 'finance') {

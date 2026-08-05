@@ -11,7 +11,7 @@ const DEPT_ORDER = [
 
 const DEPT_META_FALLBACK = {
   music:        { label: 'יצירת מוזיקה',    icon: '🎵' },
-  art:          { label: 'אמנות וויזואל',   icon: '🎨' },
+  art:          { label: 'ART',             icon: '🎨' },
   publishing:   { label: 'פרסום אוטומטי',   icon: '📢' },
   brand:        { label: 'מותג וקול',       icon: '🔊' },
   distribution: { label: 'הפצה',            icon: '📡' },
@@ -837,6 +837,106 @@ function MusicPage({ employees }) {
   );
 }
 
+// ── Art & Visual page ─────────────────────────────────────────────────────────
+
+function ArtPage({ employees }) {
+  const [deptData, setDeptData] = useState(null);
+  const [loadErr,  setLoadErr]  = useState('');
+
+  useEffect(() => {
+    fetch(`${API}/api/admin/dept/art`, { headers: authHdr() })
+      .then(r => r.ok ? r.json() : Promise.reject(r.status))
+      .then(setDeptData)
+      .catch(e => setLoadErr(String(e)));
+  }, []);
+
+  const videos = deptData?.videos ?? [];
+  const stats  = deptData?.stats  ?? { total_renders: 0, published: 0, this_month: 0 };
+  const manager = employees.find(e => !e.manager);
+
+  return (
+    <div dir="rtl" style={{ padding: '24px 28px' }}>
+      <h1 style={{ color: '#F2F1ED', fontSize: 20, margin: '0 0 4px' }}>🎨 ART</h1>
+      <p style={{ color: '#555', fontSize: 12, margin: '0 0 20px' }}>
+        {employees.length} עובדים{manager ? ` — ${manager.name} (מנהל)` : ''} · צוות דינמי לפי צורך
+      </p>
+
+      {/* Roster */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 6, marginBottom: 28 }}>
+        {employees.map(e => (
+          <div key={e.id} style={{ background: '#131316', border: '1px solid #1a1a1d', borderRadius: 8, padding: '10px 12px' }}>
+            <div style={{ color: '#F2F1ED', fontSize: 12, fontWeight: 600 }}>{e.name}</div>
+            <div style={{ color: '#555', fontSize: 10 }}>{e.role}</div>
+            {e.manager && <div style={{ color: '#333', fontSize: 10 }}>← {e.manager}</div>}
+          </div>
+        ))}
+      </div>
+
+      {loadErr && <p style={{ color: '#FF4444', fontSize: 13 }}>שגיאה: {loadErr}</p>}
+      {!deptData && !loadErr && <p style={{ color: '#555', fontSize: 13 }}>טוען…</p>}
+
+      {deptData && (
+        <>
+          {/* Stats */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 28 }}>
+            {[
+              { label: 'וידאו הופקו (HeyGen)',     value: stats.total_renders, color: '#46C7FF' },
+              { label: 'פורסמו',                    value: stats.published,     color: '#4CAF50' },
+              { label: 'הפקות החודש',               value: stats.this_month,    color: '#FFB347' },
+            ].map(s => (
+              <div key={s.label} style={{ background: '#131316', border: '1px solid #1a1a1d', borderRadius: 8, padding: '12px 14px' }}>
+                <div style={{ color: s.color, fontSize: 20, fontWeight: 700, marginBottom: 2 }}>{s.value}</div>
+                <div style={{ color: '#555', fontSize: 11 }}>{s.label}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Video gallery */}
+          <h2 style={{ color: '#8B8A85', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.1em', margin: '0 0 14px' }}>
+            פלט ויזואלי — {videos.length} וידאו אחרונים
+          </h2>
+
+          {videos.length === 0 && (
+            <p style={{ color: '#555', fontSize: 13 }}>אין וידאו מוכנים עדיין</p>
+          )}
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 14 }}>
+            {videos.map(v => (
+              <div key={v.id} style={{ background: '#0D0D10', border: '1px solid #1a1a1d', borderRadius: 10, overflow: 'hidden' }}>
+                <video
+                  src={v.video_url}
+                  controls
+                  preload="metadata"
+                  style={{ width: '100%', display: 'block', maxHeight: 220, background: '#000' }}
+                />
+                <div style={{ padding: '10px 12px' }}>
+                  <div style={{ color: '#F2F1ED', fontSize: 12, fontWeight: 600, marginBottom: 4 }}>{v.topic}</div>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: 10, color: v.status === 'published' ? '#4CAF50' : '#8B8A85', border: `1px solid ${v.status === 'published' ? '#4CAF50' : '#333'}`, borderRadius: 3, padding: '1px 5px' }}>
+                      {v.status === 'published' ? 'פורסם' : v.status}
+                    </span>
+                    {v.avatar_gender && (
+                      <span style={{ fontSize: 10, color: v.avatar_gender === 'female' ? '#FF9ECD' : '#9EC4FF' }}>
+                        {v.avatar_gender === 'female' ? '♀' : '♂'}
+                      </span>
+                    )}
+                    <span style={{ color: '#333', fontSize: 10 }}>{fmtDate(v.created_at)}</span>
+                  </div>
+                  {v.script && (
+                    <div style={{ color: '#555', fontSize: 11, marginTop: 6, lineHeight: 1.5 }}>
+                      "{v.script.slice(0, 80)}{v.script.length > 80 ? '…' : ''}"
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 // ── Finance page ──────────────────────────────────────────────────────────────
 
 function FinancePage({ employees }) {
@@ -1253,6 +1353,7 @@ export default function Admin() {
     if (deptKey === 'brand')       return <BrandPage employees={deptEmployees} />;
     if (deptKey === 'distribution') return <DistributionPage employees={deptEmployees} />;
     if (deptKey === 'music')       return <MusicPage employees={deptEmployees} />;
+    if (deptKey === 'art')         return <ArtPage employees={deptEmployees} />;
     if (deptKey === 'finance')     return <FinancePage employees={deptEmployees} />;
     if (deptKey === 'personal')    return <PersonalPage employees={deptEmployees} />;
     return <GenericDeptPage deptKey={deptKey} employees={deptEmployees} />;
