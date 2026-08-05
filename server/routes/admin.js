@@ -234,6 +234,40 @@ router.get('/dept/:name', requireAuth, async (req, res) => {
       extra = { tracks: tracksRes.rows, recent: pubRes.rows, musicQueue: mqRes.rows };
     }
 
+    if (name === 'finance') {
+      const [gigsRes, musicStatsRes, renderStatsRes] = await Promise.all([
+        pool.query(`SELECT id, date, venue, city, notes FROM gigs ORDER BY date DESC LIMIT 30`),
+        pool.query(`SELECT COUNT(*)::int AS total,
+                          COUNT(*) FILTER (WHERE status NOT IN ('failed')) AS succeeded,
+                          COUNT(*) FILTER (WHERE created_at > $1) AS this_month
+                   FROM music_queue`,
+          [Date.now() - 30 * 24 * 3600000]).catch(() => ({ rows: [{ total: 0, succeeded: 0, this_month: 0 }] })),
+        pool.query(`SELECT COUNT(*)::int AS total,
+                          COUNT(*) FILTER (WHERE created_at > $1) AS this_month
+                   FROM publish_queue WHERE heygen_video_id IS NOT NULL`,
+          [Date.now() - 30 * 24 * 3600000]),
+      ]);
+
+      const ledgerPath = join(__dirname, '../employees/references/cost-ledger.md');
+      let costLedger = '';
+      try { costLedger = readFileSync(ledgerPath, 'utf-8'); } catch {}
+
+      const gigs = gigsRes.rows.map(r => {
+        let meta = {};
+        try { if (r.notes?.startsWith('{')) meta = JSON.parse(r.notes); } catch {}
+        return { id: r.id, date: r.date, venue: r.venue, city: r.city ?? '', fee: meta.fee ?? null };
+      });
+      const totalFees = gigs.reduce((s, g) => s + (Number(g.fee) || 0), 0);
+
+      extra = {
+        costLedger,
+        gigs,
+        totalFees,
+        musicStats: musicStatsRes.rows[0] ?? { total: 0, succeeded: 0, this_month: 0 },
+        renderStats: renderStatsRes.rows[0] ?? { total: 0, this_month: 0 },
+      };
+    }
+
     if (name === 'personal') {
       const [tasksRes, gigsRes] = await Promise.all([
         pool.query(`SELECT * FROM tasks ORDER BY added_at ASC`),

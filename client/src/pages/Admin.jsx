@@ -837,6 +837,108 @@ function MusicPage({ employees }) {
   );
 }
 
+// ── Finance page ──────────────────────────────────────────────────────────────
+
+function FinancePage({ employees }) {
+  const [deptData, setDeptData] = useState(null);
+  const [loadErr,  setLoadErr]  = useState('');
+
+  useEffect(() => {
+    fetch(`${API}/api/admin/dept/finance`, { headers: authHdr() })
+      .then(r => r.ok ? r.json() : Promise.reject(r.status))
+      .then(setDeptData)
+      .catch(e => setLoadErr(String(e)));
+  }, []);
+
+  const gigs        = deptData?.gigs        ?? [];
+  const totalFees   = deptData?.totalFees   ?? 0;
+  const musicStats  = deptData?.musicStats  ?? { total: 0, succeeded: 0, this_month: 0 };
+  const renderStats = deptData?.renderStats ?? { total: 0, this_month: 0 };
+  const ledger      = deptData?.costLedger  ?? '';
+  const gigsWithFee = gigs.filter(g => g.fee);
+
+  return (
+    <div dir="rtl" style={{ padding: '24px 28px' }}>
+      <h1 style={{ color: '#F2F1ED', fontSize: 20, margin: '0 0 4px' }}>💰 כספים</h1>
+      <p style={{ color: '#555', fontSize: 12, margin: '0 0 20px' }}>
+        {employees.length} עובדים — נטע (מנהלת)
+      </p>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 6, marginBottom: 28 }}>
+        {employees.map(e => (
+          <div key={e.id} style={{ background: '#131316', border: '1px solid #1a1a1d', borderRadius: 8, padding: '10px 12px' }}>
+            <div style={{ color: '#F2F1ED', fontSize: 12, fontWeight: 600 }}>{e.name}</div>
+            <div style={{ color: '#555', fontSize: 10 }}>{e.role}</div>
+          </div>
+        ))}
+      </div>
+
+      {loadErr && <p style={{ color: '#FF4444', fontSize: 13 }}>שגיאה: {loadErr}</p>}
+      {!deptData && !loadErr && <p style={{ color: '#555', fontSize: 13 }}>טוען…</p>}
+
+      {deptData && (
+        <>
+          {/* API usage — proxy for variable costs */}
+          <h2 style={{ color: '#8B8A85', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.1em', margin: '0 0 12px' }}>
+            שימוש בכלים — 30 יום אחרונים
+          </h2>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 24 }}>
+            {[
+              { label: 'Pixazo / ACE-Step (מוזיקה)', value: musicStats.this_month, sub: `${musicStats.total} סה"כ`, color: '#46C7FF' },
+              { label: 'HeyGen (וידאו)', value: renderStats.this_month, sub: `${renderStats.total} סה"כ`, color: '#FF9ECD' },
+              { label: 'הכנסות הופעות (רשומות)', value: totalFees > 0 ? `₪${totalFees.toLocaleString()}` : '—', sub: `${gigsWithFee.length} הופעות עם עלות`, color: '#4CAF50' },
+            ].map(s => (
+              <div key={s.label} style={{ background: '#131316', border: '1px solid #1a1a1d', borderRadius: 8, padding: '12px 14px' }}>
+                <div style={{ color: s.color, fontSize: 18, fontWeight: 700, marginBottom: 2 }}>{s.value}</div>
+                <div style={{ color: '#F2F1ED', fontSize: 11, marginBottom: 2 }}>{s.label}</div>
+                <div style={{ color: '#555', fontSize: 10 }}>{s.sub}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Gig income breakdown */}
+          {gigsWithFee.length > 0 && (
+            <>
+              <h2 style={{ color: '#8B8A85', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.1em', margin: '0 0 12px' }}>
+                הכנסות הופעות
+              </h2>
+              <div style={{ marginBottom: 24 }}>
+                {gigsWithFee.map(g => (
+                  <div key={g.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 12px', background: '#131316', border: '1px solid #1a1a1d', borderRadius: 6, marginBottom: 4 }}>
+                    <div>
+                      <span style={{ color: '#F2F1ED', fontSize: 12 }}>{g.venue}</span>
+                      {g.city && <span style={{ color: '#555', fontSize: 11, marginRight: 6 }}>, {g.city}</span>}
+                    </div>
+                    <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+                      <span style={{ color: '#555', fontSize: 11 }}>{g.date}</span>
+                      <span style={{ color: '#4CAF50', fontSize: 13, fontWeight: 600 }}>₪{Number(g.fee).toLocaleString()}</span>
+                    </div>
+                  </div>
+                ))}
+                <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '8px 12px', fontSize: 13, fontWeight: 700, color: '#4CAF50' }}>
+                  סה"כ: ₪{totalFees.toLocaleString()}
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* Cost ledger */}
+          <h2 style={{ color: '#8B8A85', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.1em', margin: '0 0 12px' }}>
+            מרשם עלויות (cost-ledger.md)
+          </h2>
+          {ledger ? (
+            <pre style={{ background: '#0D0D10', border: '1px solid #1a1a1d', borderRadius: 8, padding: '14px 16px', color: '#8B8A85', fontSize: 11, lineHeight: 1.7, overflowX: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-word', direction: 'ltr', textAlign: 'left' }}>
+              {ledger}
+            </pre>
+          ) : (
+            <p style={{ color: '#555', fontSize: 12 }}>cost-ledger.md לא נמצא</p>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 // ── Personal Core page ────────────────────────────────────────────────────────
 
 function PersonalPage({ employees }) {
@@ -1151,6 +1253,7 @@ export default function Admin() {
     if (deptKey === 'brand')       return <BrandPage employees={deptEmployees} />;
     if (deptKey === 'distribution') return <DistributionPage employees={deptEmployees} />;
     if (deptKey === 'music')       return <MusicPage employees={deptEmployees} />;
+    if (deptKey === 'finance')     return <FinancePage employees={deptEmployees} />;
     if (deptKey === 'personal')    return <PersonalPage employees={deptEmployees} />;
     return <GenericDeptPage deptKey={deptKey} employees={deptEmployees} />;
   }
