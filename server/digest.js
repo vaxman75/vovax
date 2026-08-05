@@ -108,25 +108,23 @@ async function fetchRailwayDeploys() {
 // ── Data fetching ─────────────────────────────────────────────────────────────
 
 async function buildDigestData() {
-  const today = todayStartMs();
+  const today    = todayStartMs();
+  const since24h = Date.now() - 24 * 60 * 60 * 1000;
   const [tasksRes, gigsRes, opsRes, activityRes, pendingRes, tracksRes, qaRes] = await Promise.all([
     pool.query("SELECT * FROM tasks WHERE section IN ('active','waiting') ORDER BY added_at ASC"),
     pool.query(`SELECT * FROM gigs WHERE date::date >= CURRENT_DATE ORDER BY date ASC LIMIT 5`),
     pool.query("SELECT * FROM ops_items WHERE status IN ('active','waiting') ORDER BY created_at DESC"),
-    // Activity today: group by channel/platform/status
     pool.query(
       `SELECT channel, platform, status, COUNT(*)::int AS cnt
        FROM publish_queue WHERE created_at >= $1
        GROUP BY channel, platform, status ORDER BY channel, status`,
       [today]
     ),
-    // VOVAX items still waiting for manual approval (any age)
     pool.query(
       `SELECT id, topic, script, created_at, qa_status, qa_reason
        FROM publish_queue WHERE channel='vovax' AND status='pending'
        ORDER BY created_at ASC LIMIT 10`
     ),
-    // Tracks linked to posts created today
     pool.query(
       `SELECT pq.channel, pq.topic, pq.created_at, t.title, t.genre
        FROM publish_queue pq JOIN tracks t ON pq.track_id = t.id
@@ -134,7 +132,6 @@ async function buildDigestData() {
        ORDER BY pq.created_at DESC`,
       [today]
     ),
-    // QA results today
     pool.query(
       `SELECT id, channel, topic, script, qa_status, qa_reason, qa_issues, qa_at
        FROM publish_queue WHERE qa_at >= $1 AND qa_status IS NOT NULL
@@ -152,7 +149,45 @@ async function buildDigestData() {
     tracksUsedToday:  tracksRes.rows,
     qaToday:          qaRes.rows,
     deploys,
+    since24h,
   };
+}
+
+async function buildMusicData() {
+  const weeklyTarget = parseInt(process.env.MUSIC_WEEKLY_TARGET ?? '3', 10);
+  const weekStart = weekStartMs();
+  const since24h  = Date.now() - 24 * 60 * 60 * 1000;
+  try {
+    const [actRes, pendRes, weekRes, inProgRes] = await Promise.all([
+      pool.query(
+        `SELECT status, COUNT(*)::int AS cnt FROM music_queue
+         WHERE created_at >= $1 GROUP BY status`, [since24h]
+      ),
+      pool.query(
+        `SELECT id, context_hour, platform, bpm, mood, duration_s, prompt,
+                talia_verdict, amit_reason, amit_approved, created_at
+         FROM music_queue WHERE status='user_pending'
+         ORDER BY created_at ASC LIMIT 5`
+      ),
+      pool.query(
+        `SELECT COUNT(*)::int AS cnt FROM music_queue
+         WHERE created_at >= $1 AND status NOT IN ('failed')`, [weekStart]
+      ),
+      pool.query(
+        `SELECT COUNT(*)::int AS cnt FROM music_queue
+         WHERE status IN ('generating','talia_qa','amit_review')`
+      ),
+    ]);
+    return {
+      activity24h:  actRes.rows,
+      pendingItems: pendRes.rows,
+      weeklyCount:  weekRes.rows[0]?.cnt ?? 0,
+      weeklyTarget,
+      inProgress:   inProgRes.rows[0]?.cnt ?? 0,
+    };
+  } catch {
+    return { activity24h: [], pendingItems: [], weeklyCount: 0, weeklyTarget, inProgress: 0 };
+  }
 }
 
 async function buildWeeklyData() {
@@ -444,27 +479,95 @@ function renderHealthSection(h) {
   const keyRows = Object.entries(h.apiKeys).map(([k, v]) => v ? ok(k) : err(`${k}`)).join('  ');
 
   const pipelineHtml = pipeline.map(s => `<p style="font-size:13px;margin:3px 0">${s}</p>`).join('');
-  const note = `<p style="font-size:11px;color:#8B8A85;margin:10px 0 3px;font-style:italic">⚡ ACE-Step — on-demand בלבד, אין pipeline אוטומטי. כל ייצור מוזיקלי מתחיל מיוזמת המשתמש.</p>`;
-
   return pipelineHtml
     + `<p style="font-size:11px;color:#8B8A85;margin:10px 0 4px">API Keys</p>`
-    + `<p style="font-size:12px;margin:3px 0">${keyRows}</p>`
-    + note;
+    + `<p style="font-size:12px;margin:3px 0">${keyRows}</p>`;
+}
+
+function renderMusicSection(music) {
+  const { activity24h, pendingItems, weeklyCount, weeklyTarget, inProgress } = music;
+  const byStatus = Object.fromEntries(activity24h.map(r => [r.status, r.cnt]));
+  const generated = byStatus.talia_qa ?? byStatus.amit_review ?? byStatus.user_pending ?? 0;
+  const failed    = byStatus.failed ?? 0;
+  const approved  = byStatus.user_approved ?? 0;
+  const quotaClr  = weeklyCount >= weeklyTarget ? '#4CAF50' : weeklyCount > 0 ? '#FFB347' : '#8B8A85';
+
+  let html = `<p style="font-size:13px;margin:0 0 6px">
+    <span style="color:${quotaClr}">●</span>
+    מכסה שבועית: <strong style="color:${quotaClr}">${weeklyCount} / ${weeklyTarget}</strong> טראקים
+    ${inProgress > 0 ? `<span class="muted"> · ${inProgress} בייצור עכשיו</span>` : ''}
+    <span class="muted"> · מחזור אוטונומי: 10:00 + 16:00 א'–ה'</span>
+  </p>`;
+
+  if (generated > 0 || failed > 0 || approved > 0) {
+    html += `<p style="font-size:12px;color:#8B8A85;margin:3px 0">24 שעות אחרונות: `;
+    const parts = [];
+    if (generated) parts.push(`<span class="count">${generated}</span> נוצרו`);
+    if (approved)  parts.push(`<span class="ok">${approved} אושרו ✓</span>`);
+    if (failed)    parts.push(`<span class="err">${failed} נכשלו</span>`);
+    html += parts.join(' · ') + '</p>';
+  } else {
+    html += `<p class="empty">אין פעילות מוזיקה ב-24 שעות האחרונות</p>`;
+  }
+
+  if (pendingItems.length > 0) {
+    html += `<p style="font-size:11px;color:#FFD700;margin:8px 0 4px;font-weight:600">⚡ ${pendingItems.length} ממתינים לאישורך:</p>`;
+    html += pendingItems.map(item => {
+      const ctx  = [item.context_hour, item.platform, item.bpm ? `${item.bpm} BPM` : null, item.mood].filter(Boolean).join(' · ');
+      const dur  = item.duration_s ? `${Math.floor(item.duration_s/60)}:${String(item.duration_s%60).padStart(2,'0')}` : '';
+      const taliaClr = item.talia_verdict === 'APPROVED' ? '#4CAF50' : item.talia_verdict === 'REJECTED' ? '#FF4444' : '#FFB347';
+      return `<div class="pending-item" style="border-right:2px solid #FFD70066">
+        <div style="color:#8B8A85;font-size:11px">${ctx}${dur ? ` · ${dur}` : ''}</div>
+        <div style="color:#F2F1ED;font-size:12px;margin-top:3px">${(item.prompt ?? '').slice(0, 100)}…</div>
+        ${item.talia_verdict ? `<div class="pending-meta"><span style="color:${taliaClr}">טליה: ${item.talia_verdict}</span>${item.amit_reason ? ` · עמית: ${item.amit_reason.slice(0,80)}` : ''}</div>` : ''}
+      </div>`;
+    }).join('');
+  }
+  return html;
 }
 
 // ── Exported HTML builders ────────────────────────────────────────────────────
 
 export async function buildDigestHtml() {
-  const [digestData, health] = await Promise.all([buildDigestData(), buildHealthData()]);
-  const { tasks, gigs, ops, activity, pendingApprovals, tracksUsedToday, qaToday, deploys } = digestData;
+  const [digestData, health, music] = await Promise.all([
+    buildDigestData(), buildHealthData(), buildMusicData(),
+  ]);
+  const { tasks, gigs, ops, activity, pendingApprovals, tracksUsedToday, qaToday, deploys, since24h } = digestData;
 
   const activeTasks  = tasks.filter((t) => t.section === 'active');
   const waitingTasks = tasks.filter((t) => t.section === 'waiting');
+  const doneTasks    = tasks.filter((t) => t.section === 'done');
   const pendingCount = pendingApprovals.length;
+  const musicPendingCount = music.pendingItems.length;
+  const totalPending = pendingCount + musicPendingCount;
 
-  const pendingLabel = pendingCount > 0
-    ? ` — <span class="warn">${pendingCount} ממתינות לאישורך</span>`
+  const pendingLabel = totalPending > 0
+    ? ` — <span class="warn">${totalPending} ממתינות לאישורך</span>`
     : ' — <span class="ok">הכל נקי ✓</span>';
+
+  // ART stats — videos ready in last 24h
+  let artVideos24h = 0;
+  let artPending = 0;
+  try {
+    const [artVid, artRend] = await Promise.all([
+      pool.query(`SELECT COUNT(*)::int AS cnt FROM publish_queue WHERE video_url IS NOT NULL AND created_at >= $1`, [since24h]),
+      pool.query(`SELECT COUNT(*)::int AS cnt FROM publish_queue WHERE status='rendering'`),
+    ]);
+    artVideos24h = artVid.rows[0]?.cnt ?? 0;
+    artPending   = artRend.rows[0]?.cnt ?? 0;
+  } catch {}
+
+  // Sales stats — upcoming gigs + fee pipeline
+  let gigsCount = 0; let gigsPipeline = 0;
+  try {
+    const salesRes = await pool.query(
+      `SELECT COUNT(*)::int AS cnt, COALESCE(SUM(
+         CASE WHEN notes LIKE '{%' THEN (notes::json->>'fee')::numeric ELSE 0 END
+       ),0)::int AS pipeline FROM gigs WHERE date >= CURRENT_DATE`
+    );
+    gigsCount    = salesRes.rows[0]?.cnt ?? 0;
+    gigsPipeline = salesRes.rows[0]?.pipeline ?? 0;
+  } catch {}
 
   return `<!DOCTYPE html>
 <html dir="rtl" lang="he">
@@ -475,11 +578,14 @@ export async function buildDigestHtml() {
 <p class="sub">${hebrewDate()}</p>
 ${PULSE_SVG}
 
-<h2>פרסום היום</h2>
+<h2>📢 פרסום אוטומטי — היום</h2>
 ${renderPublishActivity(activity)}
 
 <h2>טראקים בשימוש היום</h2>
 ${renderTracksUsed(tracksUsedToday)}
+
+<h2>🎵 יצירת מוזיקה (עמית)</h2>
+${renderMusicSection(music)}
 
 <h2>ממתין לאישורך${pendingLabel}</h2>
 ${renderPendingApprovals(pendingApprovals)}
@@ -487,24 +593,38 @@ ${renderPendingApprovals(pendingApprovals)}
 <h2>QA היום — <span class="count">${qaToday.length}</span> בדיקות</h2>
 ${renderQaStats(qaToday)}
 
-<h2>Railway — 48 שעות אחרונות</h2>
-${renderDeploys(deploys)}
+<h2>🎨 ART — פלט ויזואלי</h2>
+<p style="font-size:13px;margin:0 0 6px">
+  ${artVideos24h > 0 ? `<span class="ok">● ${artVideos24h} וידאו הושלמו ב-24 שעות האחרונות</span>` : `<span class="muted">● אין וידאו חדשים ב-24 שעות האחרונות</span>`}
+  ${artPending > 0 ? ` <span class="warn">· ${artPending} ב-render עכשיו ⏳</span>` : ''}
+</p>
+
+<h2>💼 מכירות — פייפליין</h2>
+<p style="font-size:13px;margin:0 0 6px">
+  ${gigsCount > 0
+    ? `<span class="ok">● ${gigsCount} הופעות קרובות${gigsPipeline > 0 ? ` · ₪${gigsPipeline.toLocaleString()} בצינור` : ''}</span>`
+    : `<span class="muted">● אין הופעות קרובות רשומות</span>`}
+</p>
+
+<h2>👤 ליבה אישית — משימות</h2>
+${renderTasks(activeTasks, waitingTasks)}
+${doneTasks.length > 0 ? `<p style="font-size:11px;color:#4CAF50;margin:4px 0">✓ ${doneTasks.length} הושלמו</p>` : ''}
+
+<h2>הופעות קרובות — <span class="count">${gigs.length}</span></h2>
+${renderGigs(gigs)}
 
 <h2>בריאות המערכת</h2>
 ${renderHealthSection(health)}
 
-<h2>משימות פתוחות — <span class="count">${activeTasks.length + waitingTasks.length}</span></h2>
-${renderTasks(activeTasks, waitingTasks)}
-
-<h2>הופעות קרובות — <span class="count">${gigs.length}</span></h2>
-${renderGigs(gigs)}
+<h2>Railway — 48 שעות אחרונות</h2>
+${renderDeploys(deploys)}
 
 <h2>תיאום פעולות פתוח — <span class="count">${ops.length}</span></h2>
 ${renderOps(ops)}
 
 <div class="footer">
   <a href="https://vovax-app-production.up.railway.app">פתח את VOVAX</a> ·
-  נשלח אוטומטית בימי א'–ה' ב-08:00 שעון ישראל
+  נשלח אוטומטית בימי א'–ה' ב-08:00 שעון ישראל · כל המחלקות — תמיד פעיל
 </div>
 </body>
 </html>`;
