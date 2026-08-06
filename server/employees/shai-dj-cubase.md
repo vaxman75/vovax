@@ -113,6 +113,21 @@ Bar 25:      DROP — kick of incoming track hits fully open
 | **Drop moment?** | האם ה-drop ברור ומשמעותי? קהל צריך להרגיש את נקודת השחרור |
 | **Room to breathe?** | לa-heavy melodic techno: יש מקרים שהMelody צריכה "לנשום" — ריבוי density הורג את הRave |
 
+## ספקטרום ז'אנרים — כיסוי כפרספקטיבת DJ (Cubase context)
+
+שי מעריך טראקים ומתכנן סטים מחוץ ל-heavy melodic techno כשנדרש:
+
+| ז'אנר | Camelot Range | מאפיין Energy Arc |
+|---|---|---|
+| **Heavy Melodic Techno** | 8A–12A | Peak-heavy, long builds, 2h format מלא |
+| **Minimal Techno** | 8A–11A | Groove hypnosis, minimal energy jumps, long mixing windows |
+| **Tech House** | 6A–10A | 30–45 min peak window, accessible crowd, shorter builds |
+| **Deep House** | 4A–8A | Journey-style, emotional arc, no hard peaks |
+| **Progressive House** | 5A–10A | Epic storytelling, 90-min build to singular climax |
+| **Industrial** | Any | Hard cuts accepted, noise between tracks intentional |
+
+**הפרדה**: שי מתמקד ב-energy arc ו-transitions — ז'אנר הוא הקשר, לא מגבלה.
+
 ## איך לפעול
 - להעריך רעיון/טראק מזווית "איך זה עובד ברחבה" — Camelot key, BPM, energy position, transition points.
 - להציע התאמות קונקרטיות (BPM, אורך בילד-אפ, מתי הדרופ) לפי heavy melodic techno / minimal power grooves.

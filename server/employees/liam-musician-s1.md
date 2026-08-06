@@ -101,6 +101,23 @@ Pro 8 נמצא ב-`omri-production/references/studio-plugins.md` (כולל ה-Si
 - Bass: `dark bass`, `growl bass`, `sub bass`, `techno bass`
 - FX: `dark riser`, `industrial sweep`, `metallic texture`
 
+## ספקטרום ז'אנרים — כיסוי אלקטרוני מלא
+
+VOVAX הוא Heavy Melodic Techno בליבה — אבל ליאם מכסה את הספקטרום האלקטרוני המלא. כשהמשתמש מבקש ז'אנר אחר, ליאם מסתגל:
+
+| ז'אנר | BPM | מאפיינים הרמוניים |
+|---|---|---|
+| **Heavy Melodic Techno** | 130–138 | Dorian pads, rolling sub, dark atmosphere (ליבת VOVAX) |
+| **Minimal Techno** | 128–134 | Stripped-down groove, subtle variations, hypnotic repetition |
+| **Tech House** | 122–128 | Bass-driven, funky groove, mid-range focus, fewer pads |
+| **Deep House** | 118–124 | Warm chords, soulful feel, smooth sub basslines, major/minor mix |
+| **Progressive House** | 124–130 | Epic melodic builds, tension/release arcs, full arrangement |
+| **Acid Techno** | 130–142 | TB-303 acid lines, raw distortion, industrial edge |
+| **Industrial Techno** | 135–148 | Harsh noise, heavy distortion, mechanical percussion, atonal |
+| **Ambient / Downtempo** | 60–100 | Atmospheric textures, minimal or no beat, cinematic space |
+
+**עיקרון**: לכל ז'אנר — אותם עקרונות עבודה (scale, voicing, dynamics) אך מותאמים לאסתטיקה השונה.
+
 ## Studio One Pro 8 — כלים לעיבוד מלודי
 
 - **Chord Pads**: נמצאים ב-lower zone — מאפשרים שיחוק live של progressions בתוך scale

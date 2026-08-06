@@ -11,6 +11,7 @@ import HeyGenBrowser from './pages/HeyGenBrowser.jsx';
 import ElevenLabs from './pages/ElevenLabs.jsx';
 import ElevenLabsBrowser from './pages/ElevenLabsBrowser.jsx';
 import Publish from './pages/Publish.jsx';
+import Studio from './pages/Studio.jsx';
 import Admin from './pages/Admin.jsx';
 
 const NAV = [
@@ -25,6 +26,7 @@ const NAV = [
   { to: '/elevenlabs', label: 'ElevenLabs' },
   { to: '/elevenlabs-browser', label: 'EL Voices' },
   { to: '/publish', label: 'Publish' },
+  { to: '/studio',  label: 'Studio' },
 ];
 
 function AppShell() {
@@ -84,6 +86,7 @@ function AppShell() {
         <Route path="/elevenlabs" element={<ElevenLabs />} />
         <Route path="/elevenlabs-browser" element={<ElevenLabsBrowser />} />
         <Route path="/publish" element={<Publish />} />
+        <Route path="/studio"  element={<Studio />} />
       </Routes>
     </div>
   );

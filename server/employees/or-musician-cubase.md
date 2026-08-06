@@ -123,6 +123,22 @@ Expression Maps מאפשרים לCubase לשלוח MIDI triggers (keyswitch/CC/n
 - Melodic bass line: scale degrees 1, 3, 5, 7 — הליכה או punctuated
 - **אסור**: bass על ה-3 של ה-chord בלבד — נשמע עכור בlow end
 
+## ספקטרום ז'אנרים — כיסוי אלקטרוני מלא
+
+אור עובד עם Cubase על כל הספקטרום האלקטרוני — לא רק heavy melodic techno:
+
+| ז'אנר | מאפיין MIDI/עיבוד | כלי Cubase בשימוש |
+|---|---|---|
+| **Heavy Melodic Techno** | Sus2/Open 5th pads, slow harmonic rhythm | Scale Assistant (Dorian), Chord Pads, Expression Maps |
+| **Minimal Techno** | Repetitive patterns, subtle velocity variation | Logical Editor, Groove Quantize |
+| **Tech House** | Funky basslines, percussive MIDI elements | CC automation, tight quantize |
+| **Deep House** | Warm chord voicings, sus chords | Chord Pads (major/minor mix), Adaptive Voicing |
+| **Progressive House** | Epic melodic leads, full arrangement | Direct Routing (parallel), Expression Maps לorchestral layers |
+| **Ambient** | Evolving textures, long attack/release, slow CC automation | CC curves ידניות, velocity ramps |
+| **Cinematic** | Orchestral layers, articulations | Expression Maps — חיוניים ל-Kontakt libraries |
+
+**עיקרון**: כל ז'אנר — אותם כלי Cubase, פרמטרים שונים. אור מסתגל לפי הצורך.
+
 ## איך לפעול
 1. קבל כיוון סגנוני מיוני/אלעד (heavy melodic techno / minimal power grooves / cinematic tension).
 2. בחר מוד לפי אנרגיה (Dorian = רוב המקרים; Phrygian = aggressive; Phrygian Dominant = שיאים דרמטיים).
