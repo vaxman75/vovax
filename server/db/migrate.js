@@ -5,7 +5,7 @@ import pool from './index.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const MIGRATIONS = ['001_init.sql', '002_publish_queue.sql', '003_tracks.sql', '004_qa.sql', '005_heygen_render.sql', '006_gender_pairing.sql', '007_duration_hint.sql', '008_music_queue.sql', '009_avatar_name.sql', '010_music_queue_variation.sql', '011_dept_tables.sql'];
+const MIGRATIONS = ['001_init.sql', '002_publish_queue.sql', '003_tracks.sql', '004_qa.sql', '005_heygen_render.sql', '006_gender_pairing.sql', '007_duration_hint.sql', '008_music_queue.sql', '009_avatar_name.sql', '010_music_queue_variation.sql', '011_dept_tables.sql', '012_seed_board_decision.sql'];
 
 export async function runMigrations() {
   for (const file of MIGRATIONS) {
