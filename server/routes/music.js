@@ -192,39 +192,61 @@ async function triggerGeneration(params, regenFrom = null, regenCount = 0) {
 // ── Pixazo poll (called from cron every 2 min) ────────────────────────────────
 
 export async function pollMusicGeneration() {
+  const ORPHAN_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
+
+  // ── 1. Poll Pixazo for in-flight 'generating' items ──────────────────────────
   const { rows } = await pool.query(
     `SELECT * FROM music_queue WHERE status='generating' AND request_id IS NOT NULL`
   );
-  if (rows.length === 0) return;
 
   const apiKey = process.env.PIXAZO_API_KEY;
-  if (!apiKey) return;
-
-  for (const item of rows) {
-    try {
-      const r = await fetch(`${PIXAZO_BASE}/v2/requests/status/${item.request_id}`,
-        { headers: { 'Ocp-Apim-Subscription-Key': apiKey } }
-      );
-      const data = await r.json();
-
-      if (data.status === 'COMPLETED') {
-        const urls = data.output?.media_url ?? [];
-        await pool.query(
-          `UPDATE music_queue SET status='talia_qa', audio_urls=$1, updated_at=$2 WHERE id=$3`,
-          [JSON.stringify(urls), Date.now(), item.id]
+  if (apiKey) {
+    for (const item of rows) {
+      try {
+        const r = await fetch(`${PIXAZO_BASE}/v2/requests/status/${item.request_id}`,
+          { headers: { 'Ocp-Apim-Subscription-Key': apiKey } }
         );
-        console.log(`Music: generation complete ${item.id} → טליה QA`);
-        runTaliaQA({ ...item, audio_urls: urls }).catch(e => console.error('Music[טליה]:', e.message));
+        const data = await r.json();
 
-      } else if (data.status === 'FAILED' || data.status === 'ERROR') {
-        await pool.query(
-          `UPDATE music_queue SET status='failed', updated_at=$1 WHERE id=$2`, [Date.now(), item.id]
-        );
-        console.error(`Music: Pixazo FAILED for ${item.id}`);
+        if (data.status === 'COMPLETED') {
+          const urls = data.output?.media_url ?? [];
+          await pool.query(
+            `UPDATE music_queue SET status='talia_qa', audio_urls=$1, updated_at=$2 WHERE id=$3`,
+            [JSON.stringify(urls), Date.now(), item.id]
+          );
+          console.log(`Music: generation complete ${item.id} → טליה QA`);
+          runTaliaQA({ ...item, audio_urls: urls }).catch(e => console.error('Music[טליה]:', e.message));
+
+        } else if (data.status === 'FAILED' || data.status === 'ERROR') {
+          await pool.query(
+            `UPDATE music_queue SET status='failed', updated_at=$1 WHERE id=$2`, [Date.now(), item.id]
+          );
+          console.error(`Music: Pixazo FAILED for ${item.id}`);
+        }
+      } catch (e) {
+        console.error(`Music: poll error ${item.id}:`, e.message);
       }
-    } catch (e) {
-      console.error(`Music: poll error ${item.id}:`, e.message);
     }
+  }
+
+  // ── 2. Recover talia_qa orphans (QA call failed silently) ────────────────────
+  const { rows: taliaOrphans } = await pool.query(
+    `SELECT * FROM music_queue WHERE status='talia_qa' AND talia_verdict IS NULL AND updated_at < $1`,
+    [Date.now() - ORPHAN_THRESHOLD_MS]
+  );
+  for (const item of taliaOrphans) {
+    console.log(`Music[טליה recovery]: orphan ${item.id} stuck ${Math.round((Date.now() - Number(item.updated_at)) / 60000)}min — re-running QA`);
+    runTaliaQA(item).catch(e => console.error('Music[טליה orphan]:', e.message));
+  }
+
+  // ── 3. Recover amit_review orphans (gate call failed silently) ───────────────
+  const { rows: amitOrphans } = await pool.query(
+    `SELECT * FROM music_queue WHERE status='amit_review' AND amit_approved IS NULL AND updated_at < $1`,
+    [Date.now() - ORPHAN_THRESHOLD_MS]
+  );
+  for (const item of amitOrphans) {
+    console.log(`Music[עמית recovery]: orphan ${item.id} stuck — re-running gate`);
+    runAmitGate(item).catch(e => console.error('Music[עמית orphan]:', e.message));
   }
 }
 

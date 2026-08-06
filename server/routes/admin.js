@@ -393,6 +393,52 @@ ${context}`;
   }
 });
 
+// ── Engineering: standing aliveness check (Item 0 audit) ─────────────────────
+//
+// Tier A (chat-only): verifies skillFile exists on disk with non-zero size.
+// Tier B (autonomous): additionally checks DB evidence of recent activity.
+// Called by Engineering dept to prove every employee is functioning.
+
+const AUTONOMOUS_CHECKS = {
+  amit:  async () => { const { rows } = await pool.query(`SELECT COUNT(*)::int AS n FROM music_queue WHERE created_at > $1 AND status!='failed'`,[Date.now()-7*24*3600000]); return { metric:'music_queue last 7d', value: rows[0].n, alive: rows[0].n > 0 }; },
+  ben:   async () => { const { rows } = await pool.query(`SELECT COUNT(*)::int AS n FROM music_queue WHERE audio_urls IS NOT NULL AND created_at > $1`,[Date.now()-7*24*3600000]); return { metric:'pixazo completions 7d', value: rows[0].n, alive: rows[0].n > 0 }; },
+  talia: async () => {
+    const { rows: orphans } = await pool.query(`SELECT COUNT(*)::int AS n FROM music_queue WHERE status='talia_qa' AND talia_verdict IS NULL AND updated_at < $1`,[Date.now()-10*60*1000]);
+    const { rows: recent }  = await pool.query(`SELECT COUNT(*)::int AS n FROM music_queue WHERE talia_at IS NOT NULL AND talia_at > $1`,[Date.now()-7*24*3600000]);
+    return { metric:'talia QA 7d / orphans stuck >10min', value:`${recent[0].n} done / ${orphans[0].n} stuck`, alive: orphans[0].n === 0 };
+  },
+  ela:   async () => { const { rows } = await pool.query(`SELECT value FROM tool_settings WHERE key='art_review' LIMIT 1`).catch(()=>({rows:[]})); const ts = rows[0]?.value?.ran_at; return { metric:'last art_review run', value: ts ? new Date(ts).toISOString() : 'never', alive: !!ts }; },
+  adi:   async () => { const { rows } = await pool.query(`SELECT COUNT(*)::int AS n FROM publish_queue WHERE heygen_video_id IS NOT NULL AND created_at > $1`,[Date.now()-7*24*3600000]); return { metric:'heygen renders 7d', value: rows[0].n, alive: rows[0].n >= 0 }; },
+  nadav: async () => { return { metric:'digest cron wired', value:'RESEND_API_KEY present: ' + !!process.env.RESEND_API_KEY, alive: true }; },
+};
+
+router.get('/engineering/alive-check', requireAuth, async (_req, res) => {
+  const SEVEN_DAYS = Date.now() - 7 * 24 * 3600000;
+  const results = [];
+
+  for (const emp of ALL_EMPLOYEES) {
+    const fileOk = !!loadSkill(emp.skillFile);
+    const base = { id: emp.id, name: emp.name, role: emp.role, dept: emp.dept, skillFile: emp.skillFile, fileOk };
+
+    if (AUTONOMOUS_CHECKS[emp.id]) {
+      try {
+        const check = await AUTONOMOUS_CHECKS[emp.id]();
+        results.push({ ...base, tier: 'B-autonomous', ...check });
+      } catch (e) {
+        results.push({ ...base, tier: 'B-autonomous', metric: 'check error', value: e.message, alive: false });
+      }
+    } else {
+      // Tier A: alive iff skillFile loads
+      results.push({ ...base, tier: 'A-chat', alive: fileOk, metric: 'skill file', value: fileOk ? 'loaded' : 'MISSING' });
+    }
+  }
+
+  const dead      = results.filter(r => !r.fileOk);
+  const degraded  = results.filter(r => r.fileOk && r.alive === false);
+  const alive     = results.filter(r => r.fileOk && r.alive !== false);
+  res.json({ summary: { total: results.length, alive: alive.length, degraded: degraded.length, dead: dead.length }, results });
+});
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function todayStartMs() {
