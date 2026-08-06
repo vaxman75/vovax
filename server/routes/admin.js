@@ -5,6 +5,7 @@ import { fileURLToPath } from 'url';
 import jwt from 'jsonwebtoken';
 import pool from '../db/index.js';
 import { requireAuth } from '../middleware/auth.js';
+import { captureError } from '../sentry.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const router = Router();
@@ -437,6 +438,18 @@ router.get('/engineering/alive-check', requireAuth, async (_req, res) => {
   const degraded  = results.filter(r => r.fileOk && r.alive === false);
   const alive     = results.filter(r => r.fileOk && r.alive !== false);
   res.json({ summary: { total: results.length, alive: alive.length, degraded: degraded.length, dead: dead.length }, results });
+});
+
+// ── Sentry test — forces a captured error to verify alerting pipeline ─────────
+
+router.post('/sentry-test', requireAuth, (_req, res) => {
+  if (!process.env.SENTRY_DSN) {
+    return res.status(400).json({ error: 'SENTRY_DSN not set — configure it in Railway first' });
+  }
+  const err = new Error('VOVAX Engineering alive-check — Sentry integration test');
+  err.name = 'SentryAliveCheck';
+  captureError(err, { dept: 'engineering', test: 'true', triggered_by: 'admin' });
+  res.json({ ok: true, message: 'Error captured and sent to Sentry — check your Sentry inbox / email alert' });
 });
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

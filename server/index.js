@@ -6,6 +6,7 @@ import { dirname, join } from 'path';
 import { runMigrations } from './db/migrate.js';
 import { startCron } from './cron.js';
 import { buildDigestHtml, buildWeeklyDigestHtml } from './digest.js';
+import { initSentry, sentryErrorHandler } from './sentry.js';
 
 import tasksRouter from './routes/tasks.js';
 import meetingsRouter from './routes/meetings.js';
@@ -21,6 +22,8 @@ import tracksRouter from './routes/tracks.js';
 import adminRouter from './routes/admin.js';
 import musicRouter from './routes/music.js';
 import { requireAuth } from './middleware/auth.js';
+
+initSentry();
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -106,6 +109,15 @@ if (process.env.NODE_ENV === 'production') {
   app.use(express.static(clientDist));
   app.get('*', (_req, res) => res.sendFile(join(clientDist, 'index.html')));
 }
+
+// Sentry error handler — must be after all routes
+sentryErrorHandler(app);
+
+// Express error handler — catches anything not handled in routes
+app.use((err, _req, res, _next) => {
+  console.error('Unhandled error:', err.message);
+  res.status(500).json({ error: 'internal server error' });
+});
 
 async function start() {
   await runMigrations();

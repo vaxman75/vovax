@@ -4,6 +4,7 @@ import { buildDigestHtml, buildWeeklyDigestHtml } from './digest.js';
 import { checkHeyGenRender, sendPendingNotification, runArtReview } from './routes/publish.js';
 import { pollMusicGeneration, runMusicCycle } from './routes/music.js';
 import pool from './db/index.js';
+import { captureError } from './sentry.js';
 
 export function startCron() {
   const apiKey    = process.env.RESEND_API_KEY;
@@ -13,21 +14,21 @@ export function startCron() {
   // ── Music generation poll — runs every 2 min ─────────────────────────────────
   cron.schedule('*/2 * * * *', async () => {
     try { await pollMusicGeneration(); }
-    catch (e) { console.error('Cron: music poll error:', e.message); }
+    catch (e) { console.error('Cron: music poll error:', e.message); captureError(e, { dept: 'music', cron: 'pollMusicGeneration' }); }
   });
 
   // ── ART casting review — אלה scores recent avatar names (Sun–Thu 07:30) ─────
   cron.schedule('30 7 * * 0,1,2,3,4', async () => {
     console.log('Cron[ART/אלה]: running avatar casting standards review...');
     try { await runArtReview(); }
-    catch (e) { console.error('Cron: ART review error:', e.message); }
+    catch (e) { console.error('Cron: ART review error:', e.message); captureError(e, { dept: 'art', cron: 'runArtReview' }); }
   }, { timezone: 'Asia/Jerusalem' });
 
   // ── Autonomous music cycle — fills weekly quota (Sun–Thu 10:00 + 16:00) ────
   cron.schedule('0 10,16 * * 0,1,2,3,4', async () => {
     console.log('Cron[עמית]: checking music weekly quota...');
     try { await runMusicCycle(); }
-    catch (e) { console.error('Cron: music cycle error:', e.message); }
+    catch (e) { console.error('Cron: music cycle error:', e.message); captureError(e, { dept: 'music', cron: 'runMusicCycle' }); }
   }, { timezone: 'Asia/Jerusalem' });
 
   // ── HeyGen render poll — runs every 2 min ────────────────────────────────────
@@ -71,11 +72,13 @@ export function startCron() {
             [item.id]
           );
           console.error(`Cron: render failed for ${item.id}, promoting to text-only pending`);
+          captureError(new Error(`HeyGen render failed for ${item.id} (${item.channel})`), { dept: 'publishing', cron: 'heygenPoll', item_id: item.id });
         }
         // 'processing' / 'waiting' — leave as rendering, check next cycle
       }
     } catch (e) {
       console.error('Cron: render poll error:', e.message);
+      captureError(e, { dept: 'publishing', cron: 'heygenPoll' });
     }
   });
 

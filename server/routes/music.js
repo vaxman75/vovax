@@ -4,6 +4,7 @@ import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import pool from '../db/index.js';
 import { requireAuth } from '../middleware/auth.js';
+import { captureError } from '../sentry.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const router = Router();
@@ -289,7 +290,9 @@ Respond with valid JSON only:
   }
 
   if (!qa) {
-    console.error(`Music[טליה]: JSON parse failed for ${item.id}. Raw: ${text.slice(0, 120)}`);
+    const parseErr = new Error(`Music[טליה]: JSON parse failed for ${item.id}. Raw: ${text.slice(0, 120)}`);
+    console.error(parseErr.message);
+    captureError(parseErr, { dept: 'music', fn: 'runTaliaQA', item_id: item.id });
     await pool.query(
       `UPDATE music_queue SET status='failed', talia_verdict='REJECTED', talia_at=$1, updated_at=$1 WHERE id=$2`,
       [Date.now(), item.id]
@@ -361,7 +364,9 @@ ${talia.fix_if_rejected ? `הערת תיקון טליה: ${talia.fix_if_rejected
   }
 
   if (!gate) {
-    console.error(`Music[עמית]: JSON parse failed for ${item.id}. Raw: ${text.slice(0, 120)}`);
+    const parseErr = new Error(`Music[עמית]: JSON parse failed for ${item.id}. Raw: ${text.slice(0, 120)}`);
+    console.error(parseErr.message);
+    captureError(parseErr, { dept: 'music', fn: 'runAmitGate', item_id: item.id });
     const now = Date.now();
     await pool.query(
       `UPDATE music_queue SET amit_approved=false, amit_reason=$1, amit_at=$2, updated_at=$2 WHERE id=$3`,
