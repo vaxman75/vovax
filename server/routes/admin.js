@@ -428,6 +428,19 @@ router.get('/dept/:name', requireAuth, async (req, res) => {
   }
 });
 
+router.delete('/production/:id', requireAuth, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `DELETE FROM production_queue WHERE id = $1 RETURNING id`,
+      [req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'not found' });
+    res.json({ ok: true, id: rows[0].id });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── Chat ──────────────────────────────────────────────────────────────────────
 
 router.post('/chat', requireAuth, async (req, res) => {

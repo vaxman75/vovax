@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import Studio from './Studio.jsx';
 
 const API = '';
 const TOKEN_KEY = 'vovax_admin_token';
@@ -129,6 +130,21 @@ function Sidebar({ page, setPage, data, onLogout, onRefresh, refreshing }) {
       {/* Overview */}
       <div style={{ marginBottom: 6 }}>
         {navItem('overview', 'Overview', '🏠', totalPending)}
+      </div>
+
+      {/* Studio — the live co-creation session, distinct from the autonomous "יצירת מוזיקה" pipeline below */}
+      <div style={{ marginBottom: 6 }}>
+        <button onClick={() => setPage('studio')}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'right',
+            background: page === 'studio' ? '#F59E0B22' : '#F59E0B14',
+            border: `1px solid ${page === 'studio' ? '#F59E0B' : '#F59E0B55'}`,
+            borderRadius: 6, color: '#F59E0B', padding: '8px 10px', fontSize: 13, fontWeight: 700,
+            cursor: 'pointer', justifyContent: 'flex-start',
+          }}>
+          <span style={{ fontSize: 15 }}>🎚️</span>
+          <span style={{ flex: 1 }}>האולפן</span>
+        </button>
       </div>
 
       <div style={{ borderTop: '1px solid #1a1a1d', paddingTop: 6, flex: 1, overflowY: 'auto' }}>
@@ -1982,6 +1998,7 @@ export default function Admin() {
   function renderPage() {
     if (page === 'overview')       return <OverviewPage data={data} setPage={setPage} />;
     if (page === 'chat')           return <ChatPage allEmployees={allEmployees} initialEmployee={chatEmp} />;
+    if (page === 'studio')         return <Studio />;
     if (!deptKey)                  return <OverviewPage data={data} setPage={setPage} />;
     if (deptKey === 'publishing')   return <PublishingPage employees={deptEmployees} onAction={load} />;
     if (deptKey === 'brand')        return <BrandPage employees={deptEmployees} />;
