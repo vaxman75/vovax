@@ -279,7 +279,24 @@ Respond with valid JSON only:
   });
   const raw  = await resp.json();
   const text = raw.content?.[0]?.text ?? '';
-  const qa   = JSON.parse(text.replace(/^```(?:json)?\s*/m, '').replace(/\s*```\s*$/m, '').trim());
+
+  let qa = null;
+  try {
+    qa = JSON.parse(text.replace(/^```(?:json)?\s*/m, '').replace(/\s*```\s*$/m, '').trim());
+  } catch (_) {
+    const match = text.match(/\{[\s\S]*\}/);
+    if (match) { try { qa = JSON.parse(match[0]); } catch (_2) { /* fall through */ } }
+  }
+
+  if (!qa) {
+    console.error(`Music[טליה]: JSON parse failed for ${item.id}. Raw: ${text.slice(0, 120)}`);
+    await pool.query(
+      `UPDATE music_queue SET status='failed', talia_verdict='REJECTED', talia_at=$1, updated_at=$1 WHERE id=$2`,
+      [Date.now(), item.id]
+    );
+    await maybeRegenerate(item, 'טליה QA parse error');
+    return;
+  }
 
   const now = Date.now();
   await pool.query(
@@ -334,7 +351,25 @@ ${talia.fix_if_rejected ? `הערת תיקון טליה: ${talia.fix_if_rejected
   });
   const raw  = await resp.json();
   const text = raw.content?.[0]?.text ?? '';
-  const gate = JSON.parse(text.replace(/^```(?:json)?\s*/m, '').replace(/\s*```\s*$/m, '').trim());
+
+  let gate = null;
+  try {
+    gate = JSON.parse(text.replace(/^```(?:json)?\s*/m, '').replace(/\s*```\s*$/m, '').trim());
+  } catch (_) {
+    const match = text.match(/\{[\s\S]*\}/);
+    if (match) { try { gate = JSON.parse(match[0]); } catch (_2) { /* fall through */ } }
+  }
+
+  if (!gate) {
+    console.error(`Music[עמית]: JSON parse failed for ${item.id}. Raw: ${text.slice(0, 120)}`);
+    const now = Date.now();
+    await pool.query(
+      `UPDATE music_queue SET amit_approved=false, amit_reason=$1, amit_at=$2, updated_at=$2 WHERE id=$3`,
+      [`עמית gate parse error — raw: ${text.slice(0, 200)}`, now, item.id]
+    );
+    await maybeRegenerate(item, 'עמית gate parse error');
+    return;
+  }
 
   const now = Date.now();
   const fullReason = gate.reason + (gate.production_notes ? ` | הערות לצוות: ${gate.production_notes}` : '');
