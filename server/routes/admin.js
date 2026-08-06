@@ -407,7 +407,7 @@ const AUTONOMOUS_CHECKS = {
     const { rows: recent }  = await pool.query(`SELECT COUNT(*)::int AS n FROM music_queue WHERE talia_at IS NOT NULL AND talia_at > $1`,[Date.now()-7*24*3600000]);
     return { metric:'talia QA 7d / orphans stuck >10min', value:`${recent[0].n} done / ${orphans[0].n} stuck`, alive: orphans[0].n === 0 };
   },
-  ela:   async () => { const { rows } = await pool.query(`SELECT value FROM tool_settings WHERE key='art_review' LIMIT 1`).catch(()=>({rows:[]})); const ts = rows[0]?.value?.ran_at; return { metric:'last art_review run', value: ts ? new Date(ts).toISOString() : 'never', alive: !!ts }; },
+  ela:   async () => { const { rows } = await pool.query(`SELECT settings FROM tool_settings WHERE tool='art_review' LIMIT 1`).catch(()=>({rows:[]})); const ts = rows[0]?.settings?.reviewed_at; const ageH = ts ? Math.round((Date.now()-ts)/3600000) : null; return { metric:'last art_review run', value: ts ? `${ageH}h ago (${new Date(ts).toISOString()})` : 'never', alive: ts ? ageH < 36 : false }; },
   adi:   async () => { const { rows } = await pool.query(`SELECT COUNT(*)::int AS n FROM publish_queue WHERE heygen_video_id IS NOT NULL AND created_at > $1`,[Date.now()-7*24*3600000]); return { metric:'heygen renders 7d', value: rows[0].n, alive: rows[0].n >= 0 }; },
   nadav: async () => { return { metric:'digest cron wired', value:'RESEND_API_KEY present: ' + !!process.env.RESEND_API_KEY, alive: true }; },
 };
