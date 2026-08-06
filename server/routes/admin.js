@@ -88,21 +88,21 @@ const ALL_EMPLOYEES = [
 ];
 
 const DEPT_META = {
-  music:        { label: 'יצירת מוזיקה',      icon: '🎵', hasData: false },
+  music:        { label: 'יצירת מוזיקה',      icon: '🎵', hasData: true  },
   art:          { label: 'ART',               icon: '🎨', hasData: true  },
   publishing:   { label: 'פרסום אוטומטי',     icon: '📢', hasData: true  },
   brand:        { label: 'מותג וקול',         icon: '🔊', hasData: true  },
   distribution: { label: 'הפצה',              icon: '📡', hasData: true  },
-  production:   { label: 'הפקה',              icon: '🎛️', hasData: false },
-  sales:        { label: 'מכירות ולייבלים',   icon: '💼', hasData: false },
-  avovax:       { label: 'AVOVAX Label',       icon: '🏷️', hasData: false },
-  website:      { label: 'אתר',               icon: '🌐', hasData: false },
-  engineering:  { label: 'הנדסה',             icon: '⚙️', hasData: false },
-  cyber:        { label: 'סייבר',             icon: '🔒', hasData: false },
-  finance:      { label: 'כספים',             icon: '💰', hasData: false },
-  personal:     { label: 'ליבה אישית',        icon: '👤', hasData: false },
-  recruiting:   { label: 'גיוס וכישרונות',    icon: '🤝', hasData: false },
-  core:         { label: 'VOVAX Core',         icon: '⭐', hasData: false },
+  production:   { label: 'הפקה',              icon: '🎛️', hasData: true  },
+  sales:        { label: 'מכירות ולייבלים',   icon: '💼', hasData: true  },
+  avovax:       { label: 'AVOVAX Label',       icon: '🏷️', hasData: true  },
+  website:      { label: 'אתר',               icon: '🌐', hasData: true  },
+  engineering:  { label: 'הנדסה',             icon: '⚙️', hasData: true  },
+  cyber:        { label: 'סייבר',             icon: '🔒', hasData: true  },
+  finance:      { label: 'כספים',             icon: '💰', hasData: true  },
+  personal:     { label: 'ליבה אישית',        icon: '👤', hasData: true  },
+  recruiting:   { label: 'גיוס וכישרונות',    icon: '🤝', hasData: true  },
+  core:         { label: 'VOVAX Core',         icon: '⭐', hasData: true  },
 };
 
 function loadSkill(filename) {
@@ -334,6 +334,92 @@ router.get('/dept/:name', requireAuth, async (req, res) => {
         return { id: r.id, date: r.date, venue: r.venue, city: r.city ?? '', ...meta };
       });
       extra = { tasks, gigs };
+    }
+
+    if (name === 'production') {
+      const queueRes = await pool.query(
+        `SELECT id, title, stage, assigned_to, notes, created_at, updated_at
+         FROM production_queue
+         ORDER BY CASE stage WHEN 'mix' THEN 0 WHEN 'master' THEN 1 ELSE 2 END, created_at DESC
+         LIMIT 50`
+      ).catch(() => ({ rows: [] }));
+      extra = { queue: queueRes.rows };
+    }
+
+    if (name === 'avovax') {
+      const catalogRes = await pool.query(
+        `SELECT id, title, artist, release_date, status, platforms, notes, created_at
+         FROM label_catalog ORDER BY created_at DESC LIMIT 50`
+      ).catch(() => ({ rows: [] }));
+      extra = { catalog: catalogRes.rows };
+    }
+
+    if (name === 'website') {
+      const tasksRes = await pool.query(
+        `SELECT id, title, status, priority, notes, created_at, updated_at
+         FROM website_tasks
+         ORDER BY CASE priority WHEN 'high' THEN 0 WHEN 'normal' THEN 1 ELSE 2 END, created_at DESC`
+      ).catch(() => ({ rows: [] }));
+      extra = { tasks: tasksRes.rows };
+    }
+
+    if (name === 'engineering') {
+      const deploys = await fetchDeploys();
+      extra = { deploys };
+    }
+
+    if (name === 'cyber') {
+      const logRes = await pool.query(
+        `SELECT id, event_type, description, severity, source, created_at
+         FROM security_log ORDER BY created_at DESC LIMIT 20`
+      ).catch(() => ({ rows: [] }));
+      const assessment = {
+        apiKeys: [
+          { key: 'ANTHROPIC_API_KEY',  scope: 'Admin chat + music pipeline (Claude Haiku). AI inference only.' },
+          { key: 'HEYGEN_API_KEY',     scope: 'Video render: POST generate + GET status. No delete/list.' },
+          { key: 'ELEVENLABS_API_KEY', scope: 'Voice synth: POST /text-to-speech. No account management.' },
+          { key: 'PIXAZO_API_KEY',     scope: 'ACE-Step music gen: POST endpoint only.' },
+          { key: 'RESEND_API_KEY',     scope: 'Email digest: POST /emails. Single env-configured recipient.' },
+          { key: 'SOUNDCLOUD_*',       scope: 'Distribution: OAuth token, track upload only.' },
+          { key: 'RAILWAY_API_TOKEN',  scope: 'Deploy history: GraphQL query only, no mutations.' },
+          { key: 'SENTRY_DSN',         scope: 'Error ingest: write-only. No read access to project data.' },
+          { key: 'ADMIN_JWT_SECRET',   scope: 'Signs 7-day admin tokens. Never leaves the process.' },
+        ],
+        auditCoverage: [
+          { area: 'Publish queue state transitions', covered: true,  note: 'Full lifecycle in publish_queue (created_at, status, qa_at, qa_status)' },
+          { area: 'Music generation lifecycle',      covered: true,  note: 'Full lifecycle in music_queue (status, attempts, talia_at, amit_at, audio_urls)' },
+          { area: 'HeyGen render completions',       covered: true,  note: 'heygen_video_id + video_url stored per item in publish_queue' },
+          { area: 'Sentry 5xx error capture',        covered: true,  note: 'All cron + Express 5xx captured with dept/fn tags' },
+          { area: 'Admin auth events (login/fail)',   covered: false, note: 'Login attempts not logged to DB — JWT issued/denied silently' },
+          { area: 'Admin chat queries',              covered: false, note: 'Chat messages not persisted — no audit trail of prompts' },
+          { area: 'External API call log',           covered: false, note: 'HeyGen/ElevenLabs/ACE-Step calls not individually logged beyond queue status' },
+        ],
+        networkIsolation: 'כל "עובד" הוא system prompt שנטען בזמן request לתוך process Node.js משותף ב-Railway. בידוד IP לפי-עובד לא רלוונטי ארכיטקטונית — כל הקריאות החוצה יוצאות מאותו pod. הבידוד מיושם דרך: (1) API key scoping — לכל שירות מינימום הרשאות; (2) גבולות גזרה בקוד — כל function קוראת רק ל-API שלה; (3) JWT auth על כל endpoint מוטציה; (4) Sentry monitoring לדפוסי שגיאות חריגים.',
+        recommendations: [
+          'רשום אירועי auth (login attempts) לטבלת security_log — הטבלה קיימת כעת ומוכנה',
+          'סובב HEYGEN_API_KEY ו-ANTHROPIC_API_KEY אחת לרבעון',
+          'ודא NODE_ENV=production ב-Railway — מאשר תיוג environment ב-Sentry',
+          'הוסף rate limiting ל-/api/admin/chat — כרגע לא מוגבל לבקשות',
+          'שקול usage caps ל-ELEVENLABS_API_KEY דרך ה-dashboard',
+        ],
+      };
+      extra = { securityLog: logRes.rows, assessment };
+    }
+
+    if (name === 'recruiting') {
+      const hiringRes = await pool.query(
+        `SELECT id, candidate, role, dept, stage, notes, applied_at, updated_at
+         FROM hiring_log ORDER BY updated_at DESC LIMIT 50`
+      ).catch(() => ({ rows: [] }));
+      extra = { hiringLog: hiringRes.rows };
+    }
+
+    if (name === 'core') {
+      const decisionsRes = await pool.query(
+        `SELECT id, title, decision, decided_by, scope, notes, decided_at
+         FROM decisions_log ORDER BY decided_at DESC LIMIT 30`
+      ).catch(() => ({ rows: [] }));
+      extra = { decisions: decisionsRes.rows };
     }
 
     res.json({ employees, ...extra });

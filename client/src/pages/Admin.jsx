@@ -6,7 +6,7 @@ const TOKEN_KEY = 'vovax_admin_token';
 const DEPT_ORDER = [
   'publishing', 'brand', 'music', 'art', 'distribution',
   'production', 'sales', 'avovax', 'website', 'engineering',
-  'cyber', 'finance', 'personal', 'core',
+  'cyber', 'finance', 'personal', 'recruiting', 'core',
 ];
 
 const DEPT_META_FALLBACK = {
@@ -23,6 +23,7 @@ const DEPT_META_FALLBACK = {
   cyber:        { label: 'סייבר',           icon: '🔒' },
   finance:      { label: 'כספים',           icon: '💰' },
   personal:     { label: 'ליבה אישית',      icon: '👤' },
+  recruiting:   { label: 'גיוס וכישרונות',  icon: '🤝' },
   core:         { label: 'VOVAX Core',       icon: '⭐' },
 };
 
@@ -1446,6 +1447,504 @@ function ChatPage({ allEmployees, initialEmployee }) {
   );
 }
 
+// ── Production (Mix/Master) page ─────────────────────────────────────────────
+
+function ProductionPage({ employees }) {
+  const [deptData, setDeptData] = useState(null);
+  const [loadErr,  setLoadErr]  = useState('');
+
+  useEffect(() => {
+    fetch(`${API}/api/admin/dept/production`, { headers: authHdr() })
+      .then(r => r.ok ? r.json() : Promise.reject(r.status))
+      .then(setDeptData)
+      .catch(e => setLoadErr(String(e)));
+  }, []);
+
+  const queue   = deptData?.queue ?? [];
+  const manager = employees.find(e => !e.manager);
+  const STAGE_CLR = { mix: '#FFB347', master: '#46C7FF', done: '#4CAF50' };
+  const STAGE_LBL = { mix: 'מיקס', master: 'מאסטרינג', done: 'הושלם' };
+
+  return (
+    <div dir="rtl" style={{ padding: '24px 28px' }}>
+      <h1 style={{ color: '#F2F1ED', fontSize: 20, margin: '0 0 4px' }}>🎛️ הפקה</h1>
+      <p style={{ color: '#555', fontSize: 12, margin: '0 0 20px' }}>
+        {employees.length} עובדים{manager ? ` — ${manager.name} (מנהל)` : ''}
+      </p>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 6, marginBottom: 28 }}>
+        {employees.map(e => (
+          <div key={e.id} style={{ background: '#131316', border: '1px solid #1a1a1d', borderRadius: 8, padding: '10px 12px' }}>
+            <div style={{ color: '#F2F1ED', fontSize: 12, fontWeight: 600 }}>{e.name}</div>
+            <div style={{ color: '#555', fontSize: 10 }}>{e.role}</div>
+          </div>
+        ))}
+      </div>
+      {loadErr && <p style={{ color: '#FF4444', fontSize: 13 }}>שגיאה: {loadErr}</p>}
+      {!deptData && !loadErr && <p style={{ color: '#555', fontSize: 13 }}>טוען…</p>}
+      {deptData && (
+        <>
+          <h2 style={{ color: '#8B8A85', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.1em', margin: '0 0 12px' }}>
+            תור הפקה — {queue.length} פריטים
+          </h2>
+          {queue.length === 0 && <p style={{ color: '#555', fontSize: 13 }}>תור ריק — אין פריטי הפקה פעילים</p>}
+          {['mix', 'master', 'done'].map(stage => {
+            const items = queue.filter(i => i.stage === stage);
+            if (!items.length) return null;
+            return (
+              <div key={stage} style={{ marginBottom: 16 }}>
+                <div style={{ color: STAGE_CLR[stage], fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 6 }}>
+                  {STAGE_LBL[stage]} — {items.length}
+                </div>
+                {items.map(item => (
+                  <div key={item.id} style={{ background: '#131316', border: '1px solid #1a1a1d', borderRadius: 6, padding: '8px 12px', marginBottom: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ color: '#F2F1ED', fontSize: 12 }}>{item.title}</span>
+                    <span style={{ color: '#555', fontSize: 10 }}>{item.assigned_to ?? '—'}</span>
+                  </div>
+                ))}
+              </div>
+            );
+          })}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── AVOVAX Label page ─────────────────────────────────────────────────────────
+
+function AVOVAXPage({ employees }) {
+  const [deptData, setDeptData] = useState(null);
+  const [loadErr,  setLoadErr]  = useState('');
+
+  useEffect(() => {
+    fetch(`${API}/api/admin/dept/avovax`, { headers: authHdr() })
+      .then(r => r.ok ? r.json() : Promise.reject(r.status))
+      .then(setDeptData)
+      .catch(e => setLoadErr(String(e)));
+  }, []);
+
+  const catalog = deptData?.catalog ?? [];
+  const manager = employees.find(e => !e.manager);
+  const STATUS_CLR = { in_progress: '#FFB347', released: '#4CAF50', shelved: '#555' };
+  const STATUS_LBL = { in_progress: 'בעבודה', released: 'שוחרר', shelved: 'מוקפא' };
+
+  return (
+    <div dir="rtl" style={{ padding: '24px 28px' }}>
+      <h1 style={{ color: '#F2F1ED', fontSize: 20, margin: '0 0 4px' }}>🏷️ AVOVAX Label</h1>
+      <p style={{ color: '#555', fontSize: 12, margin: '0 0 20px' }}>
+        {employees.length} עובדים{manager ? ` — ${manager.name} (מנהל)` : ''}
+      </p>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 6, marginBottom: 28 }}>
+        {employees.map(e => (
+          <div key={e.id} style={{ background: '#131316', border: '1px solid #1a1a1d', borderRadius: 8, padding: '10px 12px' }}>
+            <div style={{ color: '#F2F1ED', fontSize: 12, fontWeight: 600 }}>{e.name}</div>
+            <div style={{ color: '#555', fontSize: 10 }}>{e.role}</div>
+          </div>
+        ))}
+      </div>
+      {loadErr && <p style={{ color: '#FF4444', fontSize: 13 }}>שגיאה: {loadErr}</p>}
+      {!deptData && !loadErr && <p style={{ color: '#555', fontSize: 13 }}>טוען…</p>}
+      {deptData && (
+        <>
+          <h2 style={{ color: '#8B8A85', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.1em', margin: '0 0 12px' }}>
+            קטלוג שחרורים — {catalog.length} פריטים
+          </h2>
+          {catalog.length === 0 && <p style={{ color: '#555', fontSize: 13 }}>אין שחרורים רשומים עדיין</p>}
+          {catalog.map(item => (
+            <div key={item.id} style={{ background: '#131316', border: '1px solid #1a1a1d', borderRadius: 8, padding: '10px 14px', marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <div>
+                <div style={{ color: '#F2F1ED', fontSize: 13, fontWeight: 600 }}>{item.title}</div>
+                {item.artist && <div style={{ color: '#8B8A85', fontSize: 11 }}>{item.artist}</div>}
+                {item.release_date && <div style={{ color: '#555', fontSize: 10 }}>{item.release_date}</div>}
+              </div>
+              <span style={{ color: STATUS_CLR[item.status] ?? '#555', border: `1px solid ${STATUS_CLR[item.status] ?? '#333'}`, borderRadius: 3, padding: '2px 7px', fontSize: 10, flexShrink: 0 }}>
+                {STATUS_LBL[item.status] ?? item.status}
+              </span>
+            </div>
+          ))}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── Website page ──────────────────────────────────────────────────────────────
+
+function WebsitePage({ employees }) {
+  const [deptData, setDeptData] = useState(null);
+  const [loadErr,  setLoadErr]  = useState('');
+
+  useEffect(() => {
+    fetch(`${API}/api/admin/dept/website`, { headers: authHdr() })
+      .then(r => r.ok ? r.json() : Promise.reject(r.status))
+      .then(setDeptData)
+      .catch(e => setLoadErr(String(e)));
+  }, []);
+
+  const tasks   = deptData?.tasks ?? [];
+  const manager = employees.find(e => !e.manager);
+  const PRIO_CLR   = { high: '#FF4444', normal: '#FFB347', low: '#555' };
+  const STATUS_CLR = { open: '#46C7FF', in_progress: '#FFB347', done: '#4CAF50' };
+  const STATUS_LBL = { open: 'פתוח', in_progress: 'בעבודה', done: 'הושלם' };
+  const open = tasks.filter(t => t.status !== 'done');
+  const done = tasks.filter(t => t.status === 'done');
+
+  return (
+    <div dir="rtl" style={{ padding: '24px 28px' }}>
+      <h1 style={{ color: '#F2F1ED', fontSize: 20, margin: '0 0 4px' }}>🌐 אתר</h1>
+      <p style={{ color: '#555', fontSize: 12, margin: '0 0 20px' }}>
+        {employees.length} עובדים{manager ? ` — ${manager.name} (מנהל)` : ''}
+      </p>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 6, marginBottom: 28 }}>
+        {employees.map(e => (
+          <div key={e.id} style={{ background: '#131316', border: '1px solid #1a1a1d', borderRadius: 8, padding: '10px 12px' }}>
+            <div style={{ color: '#F2F1ED', fontSize: 12, fontWeight: 600 }}>{e.name}</div>
+            <div style={{ color: '#555', fontSize: 10 }}>{e.role}</div>
+          </div>
+        ))}
+      </div>
+      {loadErr && <p style={{ color: '#FF4444', fontSize: 13 }}>שגיאה: {loadErr}</p>}
+      {!deptData && !loadErr && <p style={{ color: '#555', fontSize: 13 }}>טוען…</p>}
+      {deptData && (
+        <>
+          <h2 style={{ color: '#8B8A85', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.1em', margin: '0 0 12px' }}>
+            משימות אתר — {open.length} פתוחות · {done.length} הושלמו
+          </h2>
+          {tasks.length === 0 && <p style={{ color: '#555', fontSize: 13 }}>אין משימות אתר עדיין</p>}
+          {open.map(t => (
+            <div key={t.id} style={{ background: '#131316', border: '1px solid #1a1a1d', borderRadius: 6, padding: '8px 12px', marginBottom: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ width: 6, height: 6, borderRadius: '50%', background: PRIO_CLR[t.priority] ?? '#555', flexShrink: 0, display: 'inline-block' }} />
+                <span style={{ color: '#F2F1ED', fontSize: 12 }}>{t.title}</span>
+              </div>
+              <span style={{ color: STATUS_CLR[t.status] ?? '#555', fontSize: 10 }}>{STATUS_LBL[t.status] ?? t.status}</span>
+            </div>
+          ))}
+          {done.length > 0 && (
+            <>
+              <div style={{ color: '#333', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', margin: '12px 0 8px' }}>הושלמו</div>
+              {done.slice(0, 5).map(t => (
+                <div key={t.id} style={{ background: '#0D0D10', border: '1px solid #1a1a1d', borderRadius: 6, padding: '7px 12px', marginBottom: 4, opacity: 0.55 }}>
+                  <span style={{ color: '#8B8A85', fontSize: 12 }}>{t.title}</span>
+                </div>
+              ))}
+            </>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── Engineering page ──────────────────────────────────────────────────────────
+
+function EngineeringPage({ employees }) {
+  const [deptData,     setDeptData]     = useState(null);
+  const [loadErr,      setLoadErr]      = useState('');
+  const [aliveData,    setAliveData]    = useState(null);
+  const [aliveLoading, setAliveLoading] = useState(false);
+
+  useEffect(() => {
+    fetch(`${API}/api/admin/dept/engineering`, { headers: authHdr() })
+      .then(r => r.ok ? r.json() : Promise.reject(r.status))
+      .then(setDeptData)
+      .catch(e => setLoadErr(String(e)));
+  }, []);
+
+  async function runAliveCheck() {
+    setAliveLoading(true);
+    try {
+      const r = await fetch(`${API}/api/admin/engineering/alive-check`, { headers: authHdr() });
+      setAliveData(await r.json());
+    } catch (e) { setLoadErr(String(e)); }
+    setAliveLoading(false);
+  }
+
+  const deploys = deptData?.deploys ?? [];
+  const manager = employees.find(e => !e.manager);
+  const problems = (aliveData?.results ?? []).filter(r => !r.fileOk || r.alive === false);
+
+  return (
+    <div dir="rtl" style={{ padding: '24px 28px' }}>
+      <h1 style={{ color: '#F2F1ED', fontSize: 20, margin: '0 0 4px' }}>⚙️ הנדסה</h1>
+      <p style={{ color: '#555', fontSize: 12, margin: '0 0 20px' }}>
+        {employees.length} עובדים{manager ? ` — ${manager.name} (מנהל)` : ''}
+      </p>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 6, marginBottom: 28 }}>
+        {employees.map(e => (
+          <div key={e.id} style={{ background: '#131316', border: '1px solid #1a1a1d', borderRadius: 8, padding: '10px 12px' }}>
+            <div style={{ color: '#F2F1ED', fontSize: 12, fontWeight: 600 }}>{e.name}</div>
+            <div style={{ color: '#555', fontSize: 10 }}>{e.role}</div>
+          </div>
+        ))}
+      </div>
+      {loadErr && <p style={{ color: '#FF4444', fontSize: 13 }}>שגיאה: {loadErr}</p>}
+      <h2 style={{ color: '#8B8A85', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.1em', margin: '0 0 12px' }}>
+        בדיקת עובדים חיים
+      </h2>
+      <button onClick={runAliveCheck} disabled={aliveLoading}
+        style={{ background: '#131316', border: '1px solid #232326', color: '#46C7FF', borderRadius: 6, padding: '7px 16px', fontSize: 12, cursor: aliveLoading ? 'default' : 'pointer', marginBottom: 16 }}>
+        {aliveLoading ? 'בודק…' : '▶ הרץ Alive Check'}
+      </button>
+      {aliveData && (
+        <>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 16 }}>
+            {[
+              { label: 'סה"כ עובדים', value: aliveData.summary?.total,    color: '#F2F1ED' },
+              { label: 'חיים',         value: aliveData.summary?.alive,    color: '#4CAF50' },
+              { label: 'בעיה',         value: (aliveData.summary?.degraded ?? 0) + (aliveData.summary?.dead ?? 0), color: '#FF4444' },
+            ].map(s => (
+              <div key={s.label} style={{ background: '#131316', border: '1px solid #1a1a1d', borderRadius: 8, padding: '10px 14px' }}>
+                <div style={{ color: s.color, fontSize: 18, fontWeight: 700 }}>{s.value}</div>
+                <div style={{ color: '#555', fontSize: 11 }}>{s.label}</div>
+              </div>
+            ))}
+          </div>
+          {problems.length === 0
+            ? <p style={{ color: '#4CAF50', fontSize: 13, marginBottom: 16 }}>כל העובדים פעילים ✓</p>
+            : problems.map(r => (
+              <div key={r.id} style={{ background: '#1A0D0D', border: '1px solid #2a1a1a', borderRadius: 6, padding: '7px 12px', marginBottom: 4, display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: '#FF9999', fontSize: 12 }}>{r.name} ({r.role})</span>
+                <span style={{ color: '#555', fontSize: 11 }}>{r.value}</span>
+              </div>
+            ))}
+        </>
+      )}
+      {deploys.length > 0 && (
+        <>
+          <h2 style={{ color: '#8B8A85', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.1em', margin: '20px 0 12px' }}>
+            דפלויים אחרונים
+          </h2>
+          {deploys.map((d, i) => (
+            <div key={i} style={{ background: '#131316', border: '1px solid #1a1a1d', borderRadius: 6, padding: '7px 12px', marginBottom: 4, display: 'flex', justifyContent: 'space-between' }}>
+              <span style={{ color: DEPLOY_CLR[d.status] ?? '#555', fontSize: 12 }}>{DEPLOY_LABEL[d.status] ?? d.status}</span>
+              <span style={{ color: '#555', fontSize: 11 }}>{fmtIso(d.createdAt)}</span>
+            </div>
+          ))}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── Cybersecurity page ────────────────────────────────────────────────────────
+
+function CyberPage({ employees }) {
+  const [deptData, setDeptData] = useState(null);
+  const [loadErr,  setLoadErr]  = useState('');
+
+  useEffect(() => {
+    fetch(`${API}/api/admin/dept/cyber`, { headers: authHdr() })
+      .then(r => r.ok ? r.json() : Promise.reject(r.status))
+      .then(setDeptData)
+      .catch(e => setLoadErr(String(e)));
+  }, []);
+
+  const securityLog = deptData?.securityLog ?? [];
+  const assessment  = deptData?.assessment  ?? {};
+  const manager     = employees.find(e => !e.manager);
+  const SEV_CLR = { critical: '#FF4444', warning: '#FFB347', info: '#4CAF50' };
+
+  return (
+    <div dir="rtl" style={{ padding: '24px 28px' }}>
+      <h1 style={{ color: '#F2F1ED', fontSize: 20, margin: '0 0 4px' }}>🔒 סייבר</h1>
+      <p style={{ color: '#555', fontSize: 12, margin: '0 0 20px' }}>
+        {employees.length} עובדים{manager ? ` — ${manager.name} (מנהל)` : ''}
+      </p>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 6, marginBottom: 28 }}>
+        {employees.map(e => (
+          <div key={e.id} style={{ background: '#131316', border: '1px solid #1a1a1d', borderRadius: 8, padding: '10px 12px' }}>
+            <div style={{ color: '#F2F1ED', fontSize: 12, fontWeight: 600 }}>{e.name}</div>
+            <div style={{ color: '#555', fontSize: 10 }}>{e.role}</div>
+          </div>
+        ))}
+      </div>
+      {loadErr && <p style={{ color: '#FF4444', fontSize: 13 }}>שגיאה: {loadErr}</p>}
+      {!deptData && !loadErr && <p style={{ color: '#555', fontSize: 13 }}>טוען…</p>}
+      {deptData && (
+        <>
+          <h2 style={{ color: '#8B8A85', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.1em', margin: '0 0 12px' }}>API Key Scoping</h2>
+          {(assessment.apiKeys ?? []).map(k => (
+            <div key={k.key} style={{ background: '#131316', border: '1px solid #1a1a1d', borderRadius: 6, padding: '7px 12px', marginBottom: 4, display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 4 }}>
+              <span style={{ color: '#46C7FF', fontSize: 11, fontFamily: 'monospace' }}>{k.key}</span>
+              <span style={{ color: '#8B8A85', fontSize: 11 }}>{k.scope}</span>
+            </div>
+          ))}
+
+          <h2 style={{ color: '#8B8A85', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.1em', margin: '20px 0 12px' }}>כיסוי אודיט לוגים</h2>
+          {(assessment.auditCoverage ?? []).map((item, i) => (
+            <div key={i} style={{ background: '#131316', border: '1px solid #1a1a1d', borderRadius: 6, padding: '7px 12px', marginBottom: 4, display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+              <span style={{ color: item.covered ? '#4CAF50' : '#FF4444', fontSize: 12, flexShrink: 0 }}>{item.covered ? '✓' : '✗'}</span>
+              <div>
+                <div style={{ color: '#F2F1ED', fontSize: 12 }}>{item.area}</div>
+                {item.note && <div style={{ color: '#555', fontSize: 11 }}>{item.note}</div>}
+              </div>
+            </div>
+          ))}
+
+          <h2 style={{ color: '#8B8A85', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.1em', margin: '20px 0 12px' }}>בידוד רשת</h2>
+          <div style={{ background: '#131316', border: '1px solid #1a1a1d', borderRadius: 8, padding: '12px 14px', marginBottom: 16 }}>
+            <p style={{ color: '#8B8A85', fontSize: 12, margin: 0, lineHeight: 1.7 }}>{assessment.networkIsolation}</p>
+          </div>
+
+          <h2 style={{ color: '#8B8A85', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.1em', margin: '0 0 12px' }}>המלצות פעולה</h2>
+          {(assessment.recommendations ?? []).map((r, i) => (
+            <div key={i} style={{ background: '#131316', border: '1px solid #1a1a1d', borderRadius: 6, padding: '8px 12px', marginBottom: 4, display: 'flex', gap: 10 }}>
+              <span style={{ color: '#FFB347', fontSize: 11, flexShrink: 0 }}>{i + 1}.</span>
+              <span style={{ color: '#F2F1ED', fontSize: 12 }}>{r}</span>
+            </div>
+          ))}
+
+          <h2 style={{ color: '#8B8A85', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.1em', margin: '20px 0 12px' }}>
+            יומן אבטחה — {securityLog.length} אירועים אחרונים
+          </h2>
+          {securityLog.length === 0 && <p style={{ color: '#555', fontSize: 13 }}>אין אירועים ביומן עדיין</p>}
+          {securityLog.map(ev => (
+            <div key={ev.id} style={{ background: '#131316', border: '1px solid #1a1a1d', borderRadius: 6, padding: '7px 12px', marginBottom: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ color: SEV_CLR[ev.severity] ?? '#555', border: `1px solid ${SEV_CLR[ev.severity] ?? '#333'}`, borderRadius: 3, padding: '1px 5px', fontSize: 9 }}>{ev.severity}</span>
+                <span style={{ color: '#F2F1ED', fontSize: 12 }}>{ev.description}</span>
+              </div>
+              <span style={{ color: '#555', fontSize: 10, whiteSpace: 'nowrap' }}>{fmtDate(ev.created_at)}</span>
+            </div>
+          ))}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── Recruiting page ───────────────────────────────────────────────────────────
+
+function RecruitingPage({ employees }) {
+  const [deptData, setDeptData] = useState(null);
+  const [loadErr,  setLoadErr]  = useState('');
+
+  useEffect(() => {
+    fetch(`${API}/api/admin/dept/recruiting`, { headers: authHdr() })
+      .then(r => r.ok ? r.json() : Promise.reject(r.status))
+      .then(setDeptData)
+      .catch(e => setLoadErr(String(e)));
+  }, []);
+
+  const hiringLog = deptData?.hiringLog ?? [];
+  const manager   = employees.find(e => !e.manager);
+  const STAGE_CLR = { applied: '#46C7FF', screening: '#FFB347', interview: '#FF9ECD', offer: '#4CAF50', hired: '#4CAF50', rejected: '#555' };
+  const STAGE_LBL = { applied: 'הגיש', screening: 'סינון', interview: 'ראיון', offer: 'הצעה', hired: 'נקלט', rejected: 'נדחה' };
+  const active = hiringLog.filter(h => !['hired', 'rejected'].includes(h.stage));
+  const closed = hiringLog.filter(h => ['hired', 'rejected'].includes(h.stage));
+
+  return (
+    <div dir="rtl" style={{ padding: '24px 28px' }}>
+      <h1 style={{ color: '#F2F1ED', fontSize: 20, margin: '0 0 4px' }}>🤝 גיוס וכישרונות</h1>
+      <p style={{ color: '#555', fontSize: 12, margin: '0 0 20px' }}>
+        {employees.length} עובדים{manager ? ` — ${manager.name} (מנהל)` : ''}
+      </p>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 6, marginBottom: 28 }}>
+        {employees.map(e => (
+          <div key={e.id} style={{ background: '#131316', border: '1px solid #1a1a1d', borderRadius: 8, padding: '10px 12px' }}>
+            <div style={{ color: '#F2F1ED', fontSize: 12, fontWeight: 600 }}>{e.name}</div>
+            <div style={{ color: '#555', fontSize: 10 }}>{e.role}</div>
+          </div>
+        ))}
+      </div>
+      {loadErr && <p style={{ color: '#FF4444', fontSize: 13 }}>שגיאה: {loadErr}</p>}
+      {!deptData && !loadErr && <p style={{ color: '#555', fontSize: 13 }}>טוען…</p>}
+      {deptData && (
+        <>
+          <h2 style={{ color: '#8B8A85', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.1em', margin: '0 0 12px' }}>
+            פייפליין גיוס — {active.length} פעיל · {closed.filter(h => h.stage === 'hired').length} נקלטו
+          </h2>
+          {hiringLog.length === 0 && <p style={{ color: '#555', fontSize: 13 }}>אין מועמדים רשומים עדיין</p>}
+          {active.map(h => (
+            <div key={h.id} style={{ background: '#131316', border: '1px solid #1a1a1d', borderRadius: 8, padding: '10px 14px', marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <div>
+                <div style={{ color: '#F2F1ED', fontSize: 13, fontWeight: 600 }}>{h.candidate}</div>
+                <div style={{ color: '#8B8A85', fontSize: 11 }}>{h.role}{h.dept ? ` · ${h.dept}` : ''}</div>
+              </div>
+              <span style={{ color: STAGE_CLR[h.stage] ?? '#555', border: `1px solid ${STAGE_CLR[h.stage] ?? '#333'}`, borderRadius: 3, padding: '2px 7px', fontSize: 10, flexShrink: 0 }}>
+                {STAGE_LBL[h.stage] ?? h.stage}
+              </span>
+            </div>
+          ))}
+          {closed.length > 0 && (
+            <>
+              <div style={{ color: '#333', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', margin: '12px 0 8px' }}>סגורים</div>
+              {closed.slice(0, 5).map(h => (
+                <div key={h.id} style={{ background: '#0D0D10', border: '1px solid #1a1a1d', borderRadius: 6, padding: '7px 12px', marginBottom: 4, opacity: 0.55, display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: '#8B8A85', fontSize: 12 }}>{h.candidate} — {h.role}</span>
+                  <span style={{ color: h.stage === 'hired' ? '#4CAF50' : '#555', fontSize: 10 }}>{STAGE_LBL[h.stage] ?? h.stage}</span>
+                </div>
+              ))}
+            </>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── VOVAX Core page ───────────────────────────────────────────────────────────
+
+function CorePage({ employees }) {
+  const [deptData, setDeptData] = useState(null);
+  const [loadErr,  setLoadErr]  = useState('');
+
+  useEffect(() => {
+    fetch(`${API}/api/admin/dept/core`, { headers: authHdr() })
+      .then(r => r.ok ? r.json() : Promise.reject(r.status))
+      .then(setDeptData)
+      .catch(e => setLoadErr(String(e)));
+  }, []);
+
+  const decisions = deptData?.decisions ?? [];
+  const SCOPE_CLR = { company: '#46C7FF', dept: '#FFB347', product: '#FF9ECD' };
+
+  return (
+    <div dir="rtl" style={{ padding: '24px 28px' }}>
+      <h1 style={{ color: '#F2F1ED', fontSize: 20, margin: '0 0 4px' }}>⭐ VOVAX Core</h1>
+      <p style={{ color: '#555', fontSize: 12, margin: '0 0 20px' }}>
+        {employees.length} עובדים
+      </p>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 6, marginBottom: 28 }}>
+        {employees.map(e => (
+          <div key={e.id} style={{ background: '#131316', border: '1px solid #1a1a1d', borderRadius: 8, padding: '10px 12px' }}>
+            <div style={{ color: '#F2F1ED', fontSize: 12, fontWeight: 600 }}>{e.name}</div>
+            <div style={{ color: '#555', fontSize: 10 }}>{e.role}</div>
+          </div>
+        ))}
+      </div>
+      {loadErr && <p style={{ color: '#FF4444', fontSize: 13 }}>שגיאה: {loadErr}</p>}
+      {!deptData && !loadErr && <p style={{ color: '#555', fontSize: 13 }}>טוען…</p>}
+      {deptData && (
+        <>
+          <h2 style={{ color: '#8B8A85', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.1em', margin: '0 0 12px' }}>
+            יומן החלטות — {decisions.length} רשומות
+          </h2>
+          {decisions.length === 0 && <p style={{ color: '#555', fontSize: 13 }}>אין החלטות רשומות עדיין — אלון יתעד כאן החלטות ניהוליות</p>}
+          {decisions.map(d => (
+            <div key={d.id} style={{ background: '#131316', border: '1px solid #1a1a1d', borderRadius: 8, padding: '12px 14px', marginBottom: 10 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
+                <div style={{ color: '#F2F1ED', fontSize: 13, fontWeight: 600 }}>{d.title}</div>
+                {d.scope && (
+                  <span style={{ color: SCOPE_CLR[d.scope] ?? '#555', border: `1px solid ${SCOPE_CLR[d.scope] ?? '#333'}`, borderRadius: 3, padding: '2px 7px', fontSize: 10, flexShrink: 0 }}>
+                    {d.scope}
+                  </span>
+                )}
+              </div>
+              <div style={{ color: '#8B8A85', fontSize: 12, marginBottom: 6, lineHeight: 1.6 }}>{d.decision}</div>
+              <div style={{ display: 'flex', gap: 14, color: '#555', fontSize: 10 }}>
+                {d.decided_by && <span>{d.decided_by}</span>}
+                <span>{fmtDate(d.decided_at)}</span>
+              </div>
+            </div>
+          ))}
+        </>
+      )}
+    </div>
+  );
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 export default function Admin() {
@@ -1484,14 +1983,21 @@ export default function Admin() {
     if (page === 'overview')       return <OverviewPage data={data} setPage={setPage} />;
     if (page === 'chat')           return <ChatPage allEmployees={allEmployees} initialEmployee={chatEmp} />;
     if (!deptKey)                  return <OverviewPage data={data} setPage={setPage} />;
-    if (deptKey === 'publishing')  return <PublishingPage employees={deptEmployees} onAction={load} />;
-    if (deptKey === 'brand')       return <BrandPage employees={deptEmployees} />;
+    if (deptKey === 'publishing')   return <PublishingPage employees={deptEmployees} onAction={load} />;
+    if (deptKey === 'brand')        return <BrandPage employees={deptEmployees} />;
     if (deptKey === 'distribution') return <DistributionPage employees={deptEmployees} />;
-    if (deptKey === 'music')       return <MusicPage employees={deptEmployees} />;
-    if (deptKey === 'sales')       return <SalesPage employees={deptEmployees} />;
-    if (deptKey === 'art')         return <ArtPage employees={deptEmployees} />;
-    if (deptKey === 'finance')     return <FinancePage employees={deptEmployees} />;
-    if (deptKey === 'personal')    return <PersonalPage employees={deptEmployees} />;
+    if (deptKey === 'music')        return <MusicPage employees={deptEmployees} />;
+    if (deptKey === 'sales')        return <SalesPage employees={deptEmployees} />;
+    if (deptKey === 'art')          return <ArtPage employees={deptEmployees} />;
+    if (deptKey === 'finance')      return <FinancePage employees={deptEmployees} />;
+    if (deptKey === 'personal')     return <PersonalPage employees={deptEmployees} />;
+    if (deptKey === 'production')   return <ProductionPage employees={deptEmployees} />;
+    if (deptKey === 'avovax')       return <AVOVAXPage employees={deptEmployees} />;
+    if (deptKey === 'website')      return <WebsitePage employees={deptEmployees} />;
+    if (deptKey === 'engineering')  return <EngineeringPage employees={deptEmployees} />;
+    if (deptKey === 'cyber')        return <CyberPage employees={deptEmployees} />;
+    if (deptKey === 'recruiting')   return <RecruitingPage employees={deptEmployees} />;
+    if (deptKey === 'core')         return <CorePage employees={deptEmployees} />;
     return <GenericDeptPage deptKey={deptKey} employees={deptEmployees} />;
   }
 
