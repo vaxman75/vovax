@@ -9,6 +9,8 @@ export function captureError(err, tags = {}) {
 
 export function sentryErrorHandler(app) {
   if (process.env.SENTRY_DSN) {
-    Sentry.setupExpressErrorHandler(app);
+    Sentry.setupExpressErrorHandler(app, {
+      shouldHandleError: err => (err.status ?? err.statusCode ?? 500) >= 500,
+    });
   }
 }

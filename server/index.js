@@ -108,13 +108,14 @@ if (process.env.NODE_ENV === 'production') {
   app.get('*', (_req, res) => res.sendFile(join(clientDist, 'index.html')));
 }
 
-// Sentry error handler — must be after all routes
+// Sentry error handler — must be after all routes, only captures 5xx
 sentryErrorHandler(app);
 
-// Express error handler — catches anything not handled in routes
+// Express error handler — client errors (4xx) pass through silently; 5xx are logged
 app.use((err, _req, res, _next) => {
-  console.error('Unhandled error:', err.message);
-  res.status(500).json({ error: 'internal server error' });
+  const status = err.status ?? err.statusCode ?? 500;
+  if (status >= 500) console.error('Unhandled 5xx:', err.message);
+  res.status(status).json({ error: err.message ?? 'internal server error' });
 });
 
 async function start() {
