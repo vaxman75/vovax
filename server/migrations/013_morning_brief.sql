@@ -1,0 +1,6 @@
+CREATE TABLE IF NOT EXISTS morning_brief (
+  id         SERIAL PRIMARY KEY,
+  date       TEXT NOT NULL UNIQUE,
+  brief      TEXT NOT NULL,
+  replied_at BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM NOW())*1000)::BIGINT
+);

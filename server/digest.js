@@ -529,8 +529,11 @@ function renderMusicSection(music) {
 // ── Exported HTML builders ────────────────────────────────────────────────────
 
 export async function buildDigestHtml() {
-  const [digestData, health, music] = await Promise.all([
+  const todayStr = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Jerusalem' });
+  const [digestData, health, music, briefRow] = await Promise.all([
     buildDigestData(), buildHealthData(), buildMusicData(),
+    pool.query('SELECT brief, replied_at FROM morning_brief WHERE date = $1', [todayStr])
+      .then(r => r.rows[0] ?? null).catch(() => null),
   ]);
   const { tasks, gigs, ops, activity, pendingApprovals, tracksUsedToday, qaToday, deploys, since24h } = digestData;
 
@@ -540,6 +543,22 @@ export async function buildDigestHtml() {
   const pendingCount = pendingApprovals.length;
   const musicPendingCount = music.pendingItems.length;
   const totalPending = pendingCount + musicPendingCount;
+
+  const briefUrl = `${process.env.APP_URL ?? 'https://vovax-app-production.up.railway.app'}/brief`;
+  const morningBriefBlock = briefRow
+    ? `<div style="background:#0B1F0B;border:1px solid #22C55E33;border-radius:8px;padding:14px 16px;margin:0 0 24px">
+        <p style="color:#22C55E;font-size:12px;font-weight:700;margin:0 0 6px;letter-spacing:0.05em">✓ בריף בוקר נמסר — Team A מחכה ל-10:00</p>
+        <p style="color:#F2F1ED;font-size:14px;margin:0 0 8px;line-height:1.6">"${briefRow.brief.slice(0, 140)}${briefRow.brief.length > 140 ? '…' : ''}"</p>
+        <a href="${briefUrl}" style="color:#8B8A85;font-size:11px">עדכן בריף</a>
+      </div>`
+    : `<div style="background:#1A0C00;border:2px solid #F59E0B55;border-radius:8px;padding:18px;margin:0 0 24px">
+        <p style="color:#F59E0B;font-size:17px;font-weight:700;margin:0 0 8px">🎵 מה הסגנון של היום?</p>
+        <p style="color:#F2F1ED;font-size:14px;line-height:1.65;margin:0 0 14px">
+          כתוב בחופשי — הטקסט שלך יהיה הוראת הייצור של המחזור האוטונומי (10:00 + 16:00).<br/>
+          <span style="color:#8B8A85;font-size:13px">אם לא תגיב לפני 10:00, המחזור לא יפעל היום.</span>
+        </p>
+        <a href="${briefUrl}" style="display:inline-block;background:#F59E0B;color:#0A0A0C;border-radius:6px;padding:10px 22px;font-weight:700;text-decoration:none;font-size:14px">כתוב את הבריף שלך →</a>
+      </div>`;
 
   const pendingLabel = totalPending > 0
     ? ` — <span class="warn">${totalPending} ממתינות לאישורך</span>`
@@ -580,7 +599,7 @@ export async function buildDigestHtml() {
 <h1>בוקר טוב</h1>
 <p class="sub">${hebrewDate()}</p>
 ${PULSE_SVG}
-
+${morningBriefBlock}
 <h2>📢 פרסום אוטומטי — היום</h2>
 ${renderPublishActivity(activity)}
 

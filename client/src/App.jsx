@@ -12,6 +12,7 @@ import ElevenLabs from './pages/ElevenLabs.jsx';
 import ElevenLabsBrowser from './pages/ElevenLabsBrowser.jsx';
 import Publish from './pages/Publish.jsx';
 import Studio from './pages/Studio.jsx';
+import Brief from './pages/Brief.jsx';
 import Admin from './pages/Admin.jsx';
 
 const NAV = [
@@ -32,11 +33,18 @@ const NAV = [
 function AppShell() {
   const location = useLocation();
 
-  // /admin renders completely standalone — no nav, no shared layout
+  // /admin and /brief render standalone — no nav, no shared layout
   if (location.pathname.startsWith('/admin')) {
     return (
       <Routes>
         <Route path="/admin" element={<Admin />} />
+      </Routes>
+    );
+  }
+  if (location.pathname.startsWith('/brief')) {
+    return (
+      <Routes>
+        <Route path="/brief" element={<Brief />} />
       </Routes>
     );
   }

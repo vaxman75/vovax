@@ -93,6 +93,7 @@ function buildPrompt({
   bassline = 'rolling hypnotic bassline',
   pad = 'dark atmospheric pads',
   kick = 'driving four-on-the-floor kick',
+  userBrief = '',
 }) {
   const effectiveBpm    = bpmOverride ?? CONTEXT_MAP[contextHour]?.bpm ?? 124;
   const contextEnergy   = CONTEXT_MAP[contextHour]?.energy ?? '';
@@ -104,6 +105,7 @@ function buildPrompt({
   const wp = weirdnessPrompt(weirdness);
   if (wp) parts.push(wp);
   if (mood.trim()) parts.push(mood.trim());
+  if (userBrief.trim()) parts.push(userBrief.trim());
   parts.push('big reverb space like a treated studio, professional club-ready mix');
   return parts.join(', ');
 }
@@ -436,6 +438,20 @@ export async function runMusicCycle() {
     console.log('Music: PIXAZO_API_KEY not set — skipping autonomous cycle');
     return;
   }
+
+  // Morning brief is mandatory — no default fallback, no autonomous generation without it
+  const todayStr = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Jerusalem' });
+  const { rows: briefRows } = await pool.query(
+    'SELECT brief FROM morning_brief WHERE date = $1',
+    [todayStr]
+  );
+  if (!briefRows.length) {
+    console.log(`Music[עמית]: no morning brief for ${todayStr} — skipping cycle. User must reply at /brief first.`);
+    return;
+  }
+  const userBrief = briefRows[0].brief;
+  console.log(`Music[עמית]: morning brief: "${userBrief.slice(0, 80)}"`);
+
   const weeklyTarget = parseInt(process.env.MUSIC_WEEKLY_TARGET ?? '3', 10);
   const weekStart = Date.now() - 7 * 24 * 3600000;
   const { rows } = await pool.query(
@@ -447,9 +463,23 @@ export async function runMusicCycle() {
     console.log(`Music[עמית]: weekly target met (${thisWeek}/${weeklyTarget})`);
     return;
   }
-  console.log(`Music[עמית]: below quota (${thisWeek}/${weeklyTarget}) — initiating generation`);
+  console.log(`Music[עמית]: below quota (${thisWeek}/${weeklyTarget}) — initiating generation with user brief`);
   const params = await amitBrief();
-  console.log(`Music[עמית]: brief → context=${params.contextHour} platform=${params.platform} bpm=${params.bpm} key="${params.key}" mood="${params.mood}"`);
+  // Rebuild prompt to fold user's morning brief into the generation instruction
+  params.userBrief = userBrief;
+  params.prompt = buildPrompt({
+    contextHour: params.contextHour,
+    bpmOverride: null,
+    weirdness:   params.weirdness,
+    energyLevel: params.energyLevel,
+    mood:        params.mood,
+    key:         params.key,
+    bassline:    params.bassline,
+    pad:         params.pad,
+    kick:        params.kick,
+    userBrief,
+  });
+  console.log(`Music[עמית]: brief → context=${params.contextHour} platform=${params.platform} bpm=${params.bpm} key="${params.key}" mood="${params.mood}" user="${userBrief.slice(0, 50)}"`);
   await triggerGeneration(params);
 }
 
