@@ -6,7 +6,7 @@ import { dirname, join } from 'path';
 import { runMigrations } from './db/migrate.js';
 import { startCron } from './cron.js';
 import { buildDigestHtml, buildWeeklyDigestHtml } from './digest.js';
-import { initSentry, sentryErrorHandler } from './sentry.js';
+import { sentryErrorHandler } from './sentry.js';
 
 import tasksRouter from './routes/tasks.js';
 import meetingsRouter from './routes/meetings.js';
@@ -22,8 +22,6 @@ import tracksRouter from './routes/tracks.js';
 import adminRouter from './routes/admin.js';
 import musicRouter from './routes/music.js';
 import { requireAuth } from './middleware/auth.js';
-
-initSentry();
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();

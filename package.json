@@ -7,8 +7,8 @@
     "node": ">=20"
   },
   "scripts": {
-    "start": "node server/index.js",
-    "dev": "nodemon server/index.js",
+    "start": "node --import ./instrument.js server/index.js",
+    "dev": "nodemon --import ./instrument.js server/index.js",
     "build": "npm install --include=dev --prefix client && npm run build --prefix client",
     "build:start": "npm run build && npm start"
   },
