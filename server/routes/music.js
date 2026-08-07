@@ -5,6 +5,7 @@ import { fileURLToPath } from 'url';
 import pool from '../db/index.js';
 import { requireAuth } from '../middleware/auth.js';
 import { captureError } from '../sentry.js';
+import { getLatestTrend } from './trends.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const router = Router();
@@ -40,9 +41,22 @@ const MOOD_POOL = [
   'אורבני ומדוכא', 'מרחב פתוח ואינסופי',
 ];
 
-const KEY_POOL = [
-  'G minor', 'A minor', 'D minor', 'F# minor', 'C# minor', 'B minor',
+// Real chart data (Beatport Melodic House & Techno, weekly-refreshed via trend_intelligence
+// when available) shows BOTH major and minor keys charting — the old pool was minor-only,
+// which was the actual mechanism behind the "sameness" complaint. Static fallback used only
+// when no recent trend pull exists yet.
+const MAJOR_KEY_POOL = ['E major', 'C major', 'D major'];
+const MINOR_KEY_POOL = ['G minor', 'F minor', 'B minor', 'A minor', 'D minor'];
+
+const REFERENCE_ARTIST_POOL = ['Tale Of Us', 'Anyma', 'ARTBAT', 'Stephan Bodzin', 'Adriatique', 'Colyn', 'Innellea', 'Yotto'];
+
+const ARRANGEMENT_ENERGY_POOL = [
+  { key: 'deep-cinematic',          genreFlavor: 'Heavy melodic techno, deep cinematic',             desc: 'wide atmospheric space, slow-building tension, minimal percussion until late arrangement' },
+  { key: 'festival-anthem',         genreFlavor: 'Melodic techno with progressive house lift',        desc: 'anthemic lead melody, euphoric build, festival-ready peak' },
+  { key: 'percussive-tech-leaning', genreFlavor: 'Melodic techno with tech house percussive drive',   desc: 'groove-forward, tighter percussion, rolling low end, club-functional' },
 ];
+
+const VOCAL_FEATURE_ROTATION = [false, false, true, false, true]; // ~40% baseline, biased upward when trend supports it
 
 const BASSLINE_POOL = [
   'rolling hypnotic bassline',
@@ -93,17 +107,22 @@ function buildPrompt({
   bassline = 'rolling hypnotic bassline',
   pad = 'dark atmospheric pads',
   kick = 'driving four-on-the-floor kick',
+  genreFlavor = 'Heavy melodic techno',
+  referenceArtist = null,
+  vocalFeature = false,
   userBrief = '',
 }) {
   const effectiveBpm    = bpmOverride ?? CONTEXT_MAP[contextHour]?.bpm ?? 124;
   const contextEnergy   = CONTEXT_MAP[contextHour]?.energy ?? '';
   const parts = [
-    'Heavy melodic techno', `${effectiveBpm} BPM`, key, bassline, pad, kick,
+    genreFlavor, `${effectiveBpm} BPM`, key, bassline, pad, kick,
   ];
+  if (referenceArtist) parts.push(`in the sonic lineage of ${referenceArtist}`);
   const ep = energyLevel != null ? energyPrompt(energyLevel) : contextEnergy;
   if (ep) parts.push(ep);
   const wp = weirdnessPrompt(weirdness);
   if (wp) parts.push(wp);
+  if (vocalFeature) parts.push('with emotive wordless vocal hook, ethereal vocal chop texture');
   if (mood.trim()) parts.push(mood.trim());
   if (userBrief.trim()) parts.push(userBrief.trim());
   parts.push('big reverb space like a treated studio, professional club-ready mix');
@@ -114,7 +133,7 @@ function buildPrompt({
 
 async function amitBrief() {
   const { rows: recent } = await pool.query(
-    `SELECT context_hour, platform, mood, key_signature, bassline_desc, pad_desc, kick_desc, weirdness
+    `SELECT context_hour, platform, mood, bassline_desc, pad_desc, kick_desc, weirdness
      FROM music_queue
      WHERE created_at > $1 AND status != 'failed' ORDER BY created_at DESC LIMIT 12`,
     [Date.now() - 14 * 24 * 3600000]
@@ -123,7 +142,6 @@ async function amitBrief() {
   const usedContexts  = new Set(recent.map(r => r.context_hour).filter(Boolean));
   const usedPlatforms = new Set(recent.map(r => r.platform).filter(Boolean));
   const usedMoods     = new Set(recent.map(r => r.mood).filter(Boolean));
-  const usedKeys      = new Set(recent.map(r => r.key_signature).filter(Boolean));
   const usedBasslines = new Set(recent.map(r => r.bassline_desc).filter(Boolean));
   const usedPads      = new Set(recent.map(r => r.pad_desc).filter(Boolean));
   const usedKicks     = new Set(recent.map(r => r.kick_desc).filter(Boolean));
@@ -135,8 +153,6 @@ async function amitBrief() {
     ?? PLATFORM_ROTATION[Math.floor(Math.random() * PLATFORM_ROTATION.length)];
   const mood = MOOD_POOL.find(m => !usedMoods.has(m))
     ?? MOOD_POOL[Math.floor(Math.random() * MOOD_POOL.length)];
-  const key = KEY_POOL.find(k => !usedKeys.has(k))
-    ?? KEY_POOL[Math.floor(Math.random() * KEY_POOL.length)];
   const bassline = BASSLINE_POOL.find(b => !usedBasslines.has(b))
     ?? BASSLINE_POOL[Math.floor(Math.random() * BASSLINE_POOL.length)];
   const pad = PAD_POOL.find(p => !usedPads.has(p))
@@ -145,12 +161,89 @@ async function amitBrief() {
     ?? KICK_POOL[Math.floor(Math.random() * KICK_POOL.length)];
   const weirdness = WEIRDNESS_ROTATION.find(w => !usedWeirdness.includes(w)) ?? 0;
 
-  const bpm         = CONTEXT_MAP[contextHour]?.bpm ?? 124;
+  // ── Variation quota: key (major/minor), bpm, vocal feature, reference
+  // artist, arrangement energy — computed against the last team-A track,
+  // fed by real trend data when a recent pull exists (fallback to static
+  // pools otherwise). This is the actual fix for the sameness pattern:
+  // the old code had zero major keys and 3 fixed BPM values, full stop.
+  const trend = await getLatestTrend().catch(() => null);
+  const { rows: recentVariation } = await pool.query(
+    `SELECT * FROM creative_variation_log WHERE team='A' ORDER BY created_at DESC LIMIT 3`
+  );
+  const lastEntry = recentVariation[0] ?? null;
+
+  const trendMajorLetters = trend?.major_keys ? trend.major_keys.split(',').filter(Boolean) : [];
+  const trendMinorLetters = trend?.minor_keys ? trend.minor_keys.split(',').filter(Boolean) : [];
+
+  const recentMajorFlags = recentVariation.map(r => r.is_major).filter(v => v !== null);
+  const isMajor = recentMajorFlags.length && recentMajorFlags.every(v => v === recentMajorFlags[0])
+    ? !recentMajorFlags[0]
+    : Math.random() < 0.5;
+
+  const keyLetterPool = isMajor
+    ? (trendMajorLetters.length ? trendMajorLetters : MAJOR_KEY_POOL.map(k => k.split(' ')[0]))
+    : (trendMinorLetters.length ? trendMinorLetters : MINOR_KEY_POOL.map(k => k.split(' ')[0]));
+  const usedKeySignatures = new Set(recentVariation.map(r => r.key_signature).filter(Boolean));
+  const keyLetter = keyLetterPool.find(l => !usedKeySignatures.has(`${l} ${isMajor ? 'major' : 'minor'}`))
+    ?? keyLetterPool[Math.floor(Math.random() * keyLetterPool.length)];
+  const key = `${keyLetter} ${isMajor ? 'major' : 'minor'}`;
+
+  const usedRefs = new Set(recentVariation.map(r => r.reference_artist).filter(Boolean));
+  let referenceArtist = REFERENCE_ARTIST_POOL.find(a => !usedRefs.has(a))
+    ?? REFERENCE_ARTIST_POOL[Math.floor(Math.random() * REFERENCE_ARTIST_POOL.length)];
+
+  const usedEnergies = new Set(recentVariation.map(r => r.arrangement_energy).filter(Boolean));
+  const arrangementEnergyObj = ARRANGEMENT_ENERGY_POOL.find(e => !usedEnergies.has(e.key))
+    ?? ARRANGEMENT_ENERGY_POOL[Math.floor(Math.random() * ARRANGEMENT_ENERGY_POOL.length)];
+
+  const guriSupported = trend?.guri_opportunity_flag === true;
+  const vocalPool = guriSupported ? [true, false, true, true, false] : VOCAL_FEATURE_ROTATION;
+  const usedVocalFlags = recentVariation.map(r => r.has_vocal_feature);
+  let vocalFeature = vocalPool.find(v => !usedVocalFlags.includes(v));
+  if (vocalFeature === undefined) vocalFeature = Math.random() < (guriSupported ? 0.55 : 0.35);
+
+  const bpmMin = trend?.bpm_min ?? 118;
+  const bpmMax = trend?.bpm_max ?? 130;
+  const contextBpmRange = contextHour === 'chill'   ? [Math.max(105, bpmMin - 10), bpmMin + 4]
+                        : contextHour === 'opening' ? [bpmMin, Math.round((bpmMin + bpmMax) / 2)]
+                        : contextHour === 'peak'    ? [Math.round((bpmMin + bpmMax) / 2), bpmMax]
+                        : [bpmMin, bpmMax];
+  let bpm = contextBpmRange[0] + Math.floor(Math.random() * Math.max(1, contextBpmRange[1] - contextBpmRange[0] + 1));
+  if (lastEntry?.bpm != null && Math.abs(bpm - lastEntry.bpm) < 3) {
+    bpm = bpm + (bpm < contextBpmRange[1] ? 3 : -3);
+  }
+
+  // Guarantee at least 2 axes actually differ from the immediately previous track
+  const axesVaried = [];
+  if (!lastEntry) {
+    axesVaried.push('key', 'bpm', 'vocal', 'reference_artist', 'arrangement_energy'); // first-ever entry
+  } else {
+    if (lastEntry.is_major !== isMajor) axesVaried.push('key');
+    if (lastEntry.bpm == null || Math.abs(lastEntry.bpm - bpm) >= 3) axesVaried.push('bpm');
+    if (!!lastEntry.has_vocal_feature !== !!vocalFeature) axesVaried.push('vocal');
+    if (lastEntry.reference_artist !== referenceArtist) axesVaried.push('reference_artist');
+    if (lastEntry.arrangement_energy !== arrangementEnergyObj.key) axesVaried.push('arrangement_energy');
+
+    if (axesVaried.length < 2 && !axesVaried.includes('reference_artist')) {
+      const forced = REFERENCE_ARTIST_POOL.find(a => a !== lastEntry.reference_artist)
+        ?? REFERENCE_ARTIST_POOL[(REFERENCE_ARTIST_POOL.indexOf(lastEntry.reference_artist) + 1) % REFERENCE_ARTIST_POOL.length];
+      referenceArtist = forced;
+      axesVaried.push('reference_artist');
+    }
+  }
+
   const energyLevel = contextHour === 'peak' ? 85 : contextHour === 'opening' ? 55 : 30;
   const duration_s  = PLATFORM_SECS[platform] ?? 180;
-  const prompt      = buildPrompt({ contextHour, bpmOverride: null, weirdness, energyLevel, mood, key, bassline, pad, kick });
+  const prompt = buildPrompt({
+    contextHour, bpmOverride: bpm, weirdness, energyLevel, mood, key, bassline, pad, kick,
+    genreFlavor: arrangementEnergyObj.genreFlavor, referenceArtist, vocalFeature,
+  });
 
-  return { contextHour, platform, bpm, weirdness, energyLevel, mood, duration_s, prompt, key, bassline, pad, kick };
+  return {
+    contextHour, platform, bpm, weirdness, energyLevel, mood, duration_s, prompt,
+    key, bassline, pad, kick,
+    isMajor, referenceArtist, arrangementEnergy: arrangementEnergyObj.key, vocalFeature, axesVaried,
+  };
 }
 
 // ── Generation trigger ────────────────────────────────────────────────────────
@@ -164,6 +257,8 @@ async function triggerGeneration(params, regenFrom = null, regenCount = 0) {
     duration_s = 180, prompt,
     key = 'G minor', bassline = 'rolling hypnotic bassline',
     pad = 'dark atmospheric pads', kick = 'driving four-on-the-floor kick',
+    isMajor = null, referenceArtist = null, arrangementEnergy = null,
+    vocalFeature = false, axesVaried = null,
   } = params;
   const id  = uid();
   const now = Date.now();
@@ -189,6 +284,18 @@ async function triggerGeneration(params, regenFrom = null, regenCount = 0) {
   );
 
   console.log(`Music[עמית]: triggered ${id} | context=${contextHour} platform=${platform} bpm=${bpm} key="${key}" mood="${mood}"`);
+
+  // Log the creative decision for variation-quota visibility — only for genuinely
+  // new briefs. Regeneration retries reuse the same decision, not a new one.
+  if (!regenFrom && axesVaried) {
+    await pool.query(
+      `INSERT INTO creative_variation_log
+       (team, track_ref, key_signature, is_major, bpm, has_vocal_feature, reference_artist, arrangement_energy, axes_varied, created_at)
+       VALUES ('A', $1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      [id, key, isMajor, bpm, vocalFeature, referenceArtist, arrangementEnergy, axesVaried.join(','), now]
+    );
+    console.log(`Music[גיא]: variation axes for ${id}: ${axesVaried.join(', ')}`);
+  }
   return id;
 }
 
@@ -469,7 +576,7 @@ export async function runMusicCycle() {
   params.userBrief = userBrief;
   params.prompt = buildPrompt({
     contextHour: params.contextHour,
-    bpmOverride: null,
+    bpmOverride: params.bpm,
     weirdness:   params.weirdness,
     energyLevel: params.energyLevel,
     mood:        params.mood,
@@ -477,6 +584,9 @@ export async function runMusicCycle() {
     bassline:    params.bassline,
     pad:         params.pad,
     kick:        params.kick,
+    genreFlavor: ARRANGEMENT_ENERGY_POOL.find(e => e.key === params.arrangementEnergy)?.genreFlavor,
+    referenceArtist: params.referenceArtist,
+    vocalFeature:    params.vocalFeature,
     userBrief,
   });
   console.log(`Music[עמית]: brief → context=${params.contextHour} platform=${params.platform} bpm=${params.bpm} key="${params.key}" mood="${params.mood}" user="${userBrief.slice(0, 50)}"`);

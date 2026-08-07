@@ -3,6 +3,7 @@ import { Resend } from 'resend';
 import { buildDigestHtml, buildWeeklyDigestHtml } from './digest.js';
 import { checkHeyGenRender, sendPendingNotification, runArtReview } from './routes/publish.js';
 import { pollMusicGeneration, runMusicCycle } from './routes/music.js';
+import { pullTrendIntelligence } from './routes/trends.js';
 import pool from './db/index.js';
 import { captureError } from './sentry.js';
 
@@ -29,6 +30,13 @@ export function startCron() {
     console.log('Cron[עמית]: checking music weekly quota...');
     try { await runMusicCycle(); }
     catch (e) { console.error('Cron: music cycle error:', e.message); captureError(e, { dept: 'music', cron: 'runMusicCycle' }); }
+  }, { timezone: 'Asia/Jerusalem' });
+
+  // ── Trend intelligence pull — real chart signal, refreshed weekly (Mon 09:00) ──
+  cron.schedule('0 9 * * 1', async () => {
+    console.log('Cron[גיא]: pulling weekly trend intelligence...');
+    try { await pullTrendIntelligence(); }
+    catch (e) { console.error('Cron: trend pull error:', e.message); captureError(e, { dept: 'music', cron: 'pullTrendIntelligence' }); }
   }, { timezone: 'Asia/Jerusalem' });
 
   // ── HeyGen render poll — runs every 2 min ────────────────────────────────────
@@ -117,5 +125,5 @@ export function startCron() {
     sendEmail(`VOVAX · בריף שבועי — ${israelDate()}`, buildWeeklyDigestHtml);
   }, { timezone: 'Asia/Jerusalem' });
 
-  console.log('Cron: ART review (07:30), music poll+cycle (10:00+16:00), HeyGen poll, daily digest (08:00), weekly brief (Fri 08:00) — Israel time');
+  console.log('Cron: ART review (07:30), music poll+cycle (10:00+16:00), trend pull (Mon 09:00), HeyGen poll, daily digest (08:00), weekly brief (Fri 08:00) — Israel time');
 }

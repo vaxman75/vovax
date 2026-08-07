@@ -5,6 +5,7 @@ import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import pool from '../db/index.js';
 import { uploadToMasteringFolder } from './google.js';
+import { getLatestTrend } from './trends.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const router = Router();
@@ -55,6 +56,8 @@ router.post('/chat', async (req, res) => {
     const p = params;
     sessionContext = `\n\n## פרמטרי הסשן הנוכחי
 BPM: ${p.bpm ?? 'לא נבחר'}
+סולם: ${p.key ?? 'לא נבחר'}
+רפרנס אמן: ${p.referenceArtist ?? 'לא נבחר'}
 הקשר שעה: ${p.context ?? 'לא נבחר'}
 רמת אנרגיה: ${p.energyLevel ?? 'לא נבחרה'}/100
 רמת ניסיוניות: ${p.weirdness ?? 0}/100
@@ -157,6 +160,70 @@ router.post('/mastering-upload', (req, res) => {
       res.status(500).json({ error: e.message });
     }
   });
+});
+
+// GET /api/studio/variation-suggestion — informational only (Team B is human-driven,
+// Alex makes the real creative call). Shows what the last few sessions used and what
+// current trend data supports, so the variation quota is visible, not just hoped for.
+router.get('/variation-suggestion', async (_req, res) => {
+  try {
+    const { rows: recent } = await pool.query(
+      `SELECT * FROM creative_variation_log WHERE team='B' ORDER BY created_at DESC LIMIT 3`
+    );
+    const trend = await getLatestTrend().catch(() => null);
+
+    if (!recent.length) {
+      return res.json({ recentAxes: trend
+        ? `אין עדיין היסטוריית סשנים. מגמה נוכחית: BPM ${trend.bpm_min}-${trend.bpm_max}, major=[${trend.major_keys}], minor=[${trend.minor_keys}].`
+        : null });
+    }
+
+    const last = recent[0];
+    const keys = recent.map(r => r.key_signature).filter(Boolean).join(' / ');
+    const refs = recent.map(r => r.reference_artist).filter(Boolean).join(' / ');
+    const bpms = recent.map(r => r.bpm).filter(Boolean).join(' / ');
+    const vocals = recent.map(r => r.has_vocal_feature ? 'עם ווקאל' : 'בלי ווקאל').join(' / ');
+
+    let line = `${recent.length} הסשנים האחרונים: סולם ${keys} · BPM ${bpms} · רפרנס ${refs} · ${vocals}.`;
+    if (trend) {
+      line += ` מגמה נוכחית תומכת ב-BPM ${trend.bpm_min}-${trend.bpm_max}` +
+        (trend.guri_opportunity_flag ? ', וקולאבים עם ווקאל מציגים ביצועים חזקים בצ׳ארטים כרגע — שווה לשקול.' : '.');
+    }
+    res.json({ recentAxes: line, lastEntry: last });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/studio/session-log — log Team B's actual chosen params when a session starts.
+// No enforcement (Alex decides), just visibility — same table as Team A for direct comparison.
+router.post('/session-log', async (req, res) => {
+  const { keySignature, isMajor, bpm, hasVocalFeature, referenceArtist, arrangementEnergy, trackRef } = req.body ?? {};
+  try {
+    const { rows: recent } = await pool.query(
+      `SELECT * FROM creative_variation_log WHERE team='B' ORDER BY created_at DESC LIMIT 1`
+    );
+    const last = recent[0] ?? null;
+    const axesVaried = [];
+    if (last) {
+      if (last.is_major !== !!isMajor) axesVaried.push('key');
+      if (last.bpm == null || Math.abs(last.bpm - (bpm ?? 0)) >= 3) axesVaried.push('bpm');
+      if (!!last.has_vocal_feature !== !!hasVocalFeature) axesVaried.push('vocal');
+      if (last.reference_artist !== referenceArtist) axesVaried.push('reference_artist');
+      if (last.arrangement_energy !== arrangementEnergy) axesVaried.push('arrangement_energy');
+    }
+
+    await pool.query(
+      `INSERT INTO creative_variation_log
+       (team, track_ref, key_signature, is_major, bpm, has_vocal_feature, reference_artist, arrangement_energy, axes_varied, created_at)
+       VALUES ('B', $1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      [trackRef ?? null, keySignature ?? null, !!isMajor, bpm ?? null, !!hasVocalFeature,
+       referenceArtist ?? null, arrangementEnergy ?? null, axesVaried.join(','), Date.now()]
+    );
+    res.json({ ok: true, axesVaried });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 export default router;

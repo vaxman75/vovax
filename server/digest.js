@@ -192,7 +192,7 @@ async function buildMusicData() {
 
 async function buildWeeklyData() {
   const weekStart = weekStartMs();
-  const [tasksRes, gigsRes, opsRes, publishRes, tracksRes, doneRes] = await Promise.all([
+  const [tasksRes, gigsRes, opsRes, publishRes, tracksRes, doneRes, trendRes] = await Promise.all([
     pool.query("SELECT * FROM tasks WHERE section IN ('active','waiting') ORDER BY added_at ASC"),
     pool.query(`SELECT * FROM gigs WHERE date::date >= CURRENT_DATE ORDER BY date ASC LIMIT 10`),
     pool.query("SELECT * FROM ops_items WHERE status IN ('active','waiting') ORDER BY created_at DESC"),
@@ -213,6 +213,7 @@ async function buildWeeklyData() {
       `SELECT * FROM tasks WHERE section='done' AND completed_at >= $1 ORDER BY completed_at DESC`,
       [weekStart]
     ),
+    pool.query(`SELECT * FROM trend_intelligence ORDER BY pulled_at DESC LIMIT 1`).catch(() => ({ rows: [] })),
   ]);
   return {
     tasks:          tasksRes.rows,
@@ -221,6 +222,7 @@ async function buildWeeklyData() {
     weeklyPublish:  publishRes.rows,
     weeklyTracks:   tracksRes.rows,
     completedTasks: doneRes.rows,
+    trend:          trendRes.rows[0] ?? null,
   };
 }
 
@@ -676,7 +678,7 @@ ${renderOps(ops)}
 }
 
 export async function buildWeeklyDigestHtml() {
-  const { tasks, gigs, ops, weeklyPublish, weeklyTracks, completedTasks } = await buildWeeklyData();
+  const { tasks, gigs, ops, weeklyPublish, weeklyTracks, completedTasks, trend } = await buildWeeklyData();
 
   const activeTasks  = tasks.filter((t) => t.section === 'active');
   const waitingTasks = tasks.filter((t) => t.section === 'waiting');
@@ -711,6 +713,14 @@ export async function buildWeeklyDigestHtml() {
        <ul>${completedTasks.map((t) => `<li style="color:#8B8A85">${t.title}</li>`).join('')}</ul>`
     : '';
 
+  const trendHtml = !trend
+    ? `<p class="empty">אין עדיין פול trend intelligence — ירוץ אוטומטית בימי שני 09:00, או POST /api/trends/pull ידנית</p>`
+    : `<p style="font-size:13px">BPM <span class="count">${trend.bpm_min}-${trend.bpm_max}</span> ·
+         מז'ור: <span class="muted">${trend.major_keys || '—'}</span> ·
+         מינור: <span class="muted">${trend.minor_keys || '—'}</span></p>
+       <p style="font-size:12px;color:#8B8A85">${trend.vocal_feature_trend || ''}</p>
+       ${trend.guri_opportunity_flag ? `<p style="font-size:13px;color:#FFB347;font-weight:600">🎤 הזדמנות GURI — קולאבים ווקאליים מבצעים היטב בצ'ארטים כרגע. שווה לדון עם אלעד/רוני על VOVAX feat GURI כליין נפרד.</p>` : ''}`;
+
   return `<!DOCTYPE html>
 <html dir="rtl" lang="he">
 <head><meta charset="UTF-8"><style>${STYLES}</style></head>
@@ -719,6 +729,9 @@ export async function buildWeeklyDigestHtml() {
 <h1>שבוע טוב</h1>
 <p class="sub">${hebrewWeekRange()}</p>
 ${PULSE_SVG}
+
+<h2>Trend Intelligence (גיא)</h2>
+${trendHtml}
 
 <h2>פרסום שבועי — <span class="count">${totalPublished}</span> פוסטים</h2>
 ${publishHtml}

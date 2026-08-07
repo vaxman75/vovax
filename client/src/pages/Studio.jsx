@@ -1,4 +1,8 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
+
+const MAJOR_KEYS = ['E', 'C', 'D'];
+const MINOR_KEYS = ['G', 'F', 'B', 'A', 'D'];
+const REFERENCE_ARTISTS = ['Tale Of Us', 'Anyma', 'ARTBAT', 'Stephan Bodzin', 'Adriatique', 'Colyn', 'Innellea', 'Yotto'];
 
 const CONTEXT_MAP = {
   peak:       { bpm: 127, label: 'Peak Hour' },
@@ -217,13 +221,37 @@ function SessionParams({ studio, onStart, onBack }) {
   const [energyLevel, setEnergyLevel] = useState(75);
   const [platform, setPlatform]       = useState('club');
   const [lyrics, setLyrics]           = useState('');
+  const [isMajor, setIsMajor]         = useState(false);
+  const [keyLetter, setKeyLetter]     = useState('G');
+  const [referenceArtist, setReferenceArtist] = useState(REFERENCE_ARTISTS[0]);
+  const [suggestion, setSuggestion]   = useState(null);
+
+  useEffect(() => {
+    fetch('/api/studio/variation-suggestion')
+      .then(r => r.json())
+      .then(setSuggestion)
+      .catch(() => setSuggestion(null));
+  }, []);
 
   const effectiveBpm = bpmOverride ?? CONTEXT_MAP[context]?.bpm ?? 124;
   const wLabel = weirdnessLabel(weirdness);
   const eLabel = energyLabel(energyLevel);
+  const key = `${keyLetter} ${isMajor ? 'major' : 'minor'}`;
+  const arrangementEnergy = weirdness > 50 ? 'percussive-tech-leaning' : energyLevel > 70 ? 'festival-anthem' : 'deep-cinematic';
+  const hasVocalFeature = lyrics.trim().length > 0;
 
   function start() {
-    onStart({ context, bpm: effectiveBpm, weirdness, energyLevel, platform: PLATFORM_MAP[platform]?.label, lyrics });
+    const params = { context, bpm: effectiveBpm, weirdness, energyLevel, platform: PLATFORM_MAP[platform]?.label, lyrics, key, referenceArtist };
+    fetch('/api/studio/session-log', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        keySignature: key, isMajor, bpm: effectiveBpm,
+        hasVocalFeature, referenceArtist, arrangementEnergy,
+        trackRef: `studio-${studio}-${Date.now()}`,
+      }),
+    }).catch(() => {});
+    onStart(params);
   }
 
   return (
@@ -234,7 +262,38 @@ function SessionParams({ studio, onStart, onBack }) {
         <span style={{ color: '#8B8A85', fontSize: 12 }}>עם {meta.lead}</span>
       </div>
 
+      {suggestion?.recentAxes && (
+        <div style={{ ...S, borderRadius: 8, padding: '10px 14px', marginBottom: 20, fontSize: 11, color: '#8B8A85' }}>
+          <div style={{ color: '#F59E0B', fontWeight: 700, marginBottom: 4 }}>המלצת גיוון</div>
+          {suggestion.recentAxes}
+        </div>
+      )}
+
       <div style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
+        {/* Key */}
+        <div>
+          <div style={{ color: '#8B8A85', fontSize: 12, marginBottom: 8 }}>סולם (Key)</div>
+          <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+            <Chip active={!isMajor} onClick={() => setIsMajor(false)} color={meta.color}>Minor</Chip>
+            <Chip active={isMajor} onClick={() => setIsMajor(true)} color={meta.color}>Major</Chip>
+          </div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {(isMajor ? MAJOR_KEYS : MINOR_KEYS).map(k => (
+              <Chip key={k} active={keyLetter === k} onClick={() => setKeyLetter(k)} color={meta.color}>{k}</Chip>
+            ))}
+          </div>
+        </div>
+
+        {/* Reference artist */}
+        <div>
+          <div style={{ color: '#8B8A85', fontSize: 12, marginBottom: 8 }}>רפרנס אמן</div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {REFERENCE_ARTISTS.map(a => (
+              <Chip key={a} active={referenceArtist === a} onClick={() => setReferenceArtist(a)} color={meta.color}>{a}</Chip>
+            ))}
+          </div>
+        </div>
+
         {/* BPM */}
         <div>
           <div style={{ color: '#8B8A85', fontSize: 12, marginBottom: 8 }}>BPM</div>
@@ -430,6 +489,8 @@ function StudioChat({ studio, params, onBack }) {
       {/* Session summary pill */}
       <div style={{ ...S, borderRadius: 7, padding: '6px 12px', marginBottom: 10, fontSize: 11, display: 'flex', gap: 14, flexWrap: 'wrap', flexShrink: 0 }}>
         <span>BPM: <span style={{ color: meta.color }}>{params.bpm}</span></span>
+        {params.key && <span>סולם: <span style={{ color: '#F2F1ED' }}>{params.key}</span></span>}
+        {params.referenceArtist && <span>רפרנס: <span style={{ color: '#F2F1ED' }}>{params.referenceArtist}</span></span>}
         <span>אנרגיה: <span style={{ color: eLabel.color }}>{eLabel.label}</span></span>
         <span>ניסיוניות: <span style={{ color: wLabel.color }}>{wLabel.label}</span></span>
         {params.platform && <span>פלטפורמה: <span style={{ color: '#F2F1ED' }}>{params.platform}</span></span>}

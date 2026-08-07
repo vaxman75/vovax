@@ -697,12 +697,25 @@ function MusicPage({ employees }) {
   const [deptData,  setDeptData]  = useState(null);
   const [acting,    setActing]    = useState({});
   const [cycling,   setCycling]   = useState(false);
+  const [trendData, setTrendData] = useState(null);
+  const [pulling,   setPulling]   = useState(false);
 
   const load = () => {
     fetch(`${API}/api/admin/dept/music`, { headers: authHdr() })
       .then(r => r.ok ? r.json() : null).then(setDeptData);
   };
-  useEffect(load, []);
+  const loadTrend = () => {
+    fetch(`${API}/api/trends/latest`, { headers: authHdr() })
+      .then(r => r.ok ? r.json() : null).then(setTrendData);
+  };
+  useEffect(() => { load(); loadTrend(); }, []);
+
+  const pullTrend = async () => {
+    setPulling(true);
+    await fetch(`${API}/api/trends/pull`, { method: 'POST', headers: authHdr() });
+    setPulling(false);
+    loadTrend();
+  };
 
   const tracks     = deptData?.tracks     ?? [];
   const musicQueue = deptData?.musicQueue ?? [];
@@ -803,6 +816,62 @@ function MusicPage({ employees }) {
             <div style={{ color: '#555', fontSize: 10 }}>{e.role}</div>
           </div>
         ))}
+      </div>
+
+      <div style={{ background: '#131316', border: '1px solid #1a1a1d', borderRadius: 8, padding: '14px 16px', marginBottom: 20 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
+          <h2 style={{ color: '#F59E0B', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.1em', margin: 0 }}>Trend Intelligence (גיא)</h2>
+          <button onClick={pullTrend} disabled={pulling}
+            style={{ background: 'none', border: '1px solid #F59E0B55', color: '#F59E0B', borderRadius: 6, padding: '3px 10px', fontSize: 10, cursor: 'pointer' }}>
+            {pulling ? 'מריץ מחקר…' : '🔍 הרץ פול ידני'}
+          </button>
+        </div>
+        {trendData?.trend ? (
+          <>
+            <p style={{ color: '#F2F1ED', fontSize: 12, margin: '0 0 4px' }}>
+              BPM <span style={{ color: '#46C7FF' }}>{trendData.trend.bpm_min}-{trendData.trend.bpm_max}</span> ·
+              {' '}מז'ור: <span style={{ color: '#8B8A85' }}>{trendData.trend.major_keys || '—'}</span> ·
+              {' '}מינור: <span style={{ color: '#8B8A85' }}>{trendData.trend.minor_keys || '—'}</span>
+            </p>
+            <p style={{ color: '#8B8A85', fontSize: 11, margin: '0 0 4px' }}>{trendData.trend.vocal_feature_trend}</p>
+            {trendData.trend.guri_opportunity_flag && (
+              <p style={{ color: '#FFB347', fontSize: 12, fontWeight: 600, margin: '4px 0' }}>🎤 הזדמנות GURI פעילה — כדאי לדון עם אלעד/רוני</p>
+            )}
+            <p style={{ color: '#444', fontSize: 10, margin: '4px 0 0' }}>
+              נמשך {new Date(Number(trendData.trend.pulled_at)).toLocaleDateString('he-IL')}
+            </p>
+          </>
+        ) : (
+          <p style={{ color: '#555', fontSize: 12, margin: 0 }}>אין עדיין פול — ירוץ אוטומטית בימי שני, או לחץ "הרץ פול ידני"</p>
+        )}
+
+        {trendData?.genreDistribution?.length > 0 && (
+          <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid #1a1a1d' }}>
+            <div style={{ color: '#8B8A85', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>
+              פילוג ז'אנר בקטלוג האמיתי ({trendData.genreDistribution.reduce((s, g) => s + g.cnt, 0)} טראקים)
+            </div>
+            {trendData.genreDistribution.slice(0, 8).map(g => (
+              <div key={g.genre ?? 'none'} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#8B8A85', margin: '2px 0' }}>
+                <span>{g.genre ?? '(ללא)'}</span><span style={{ color: '#46C7FF' }}>{g.cnt}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {trendData?.variationLog?.length > 0 && (
+          <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid #1a1a1d' }}>
+            <div style={{ color: '#8B8A85', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>
+              מכסת גיוון — {trendData.variationLog.length} רשומות אחרונות
+            </div>
+            {trendData.variationLog.slice(0, 6).map(v => (
+              <div key={v.id} style={{ fontSize: 11, color: '#8B8A85', margin: '2px 0' }}>
+                <span style={{ color: v.team === 'A' ? '#46C7FF' : '#F59E0B' }}>[{v.team}]</span>
+                {' '}{v.key_signature} · {v.bpm} BPM · {v.reference_artist} · {v.has_vocal_feature ? 'ווקאל' : 'ללא ווקאל'}
+                {' '}— <span style={{ color: '#22C55E' }}>גוון: {v.axes_varied || '—'}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {pending.length > 0 && (

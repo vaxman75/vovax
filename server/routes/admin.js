@@ -26,6 +26,7 @@ const ALL_EMPLOYEES = [
   { id: 'yoni',   name: 'יוני',  role: 'Cubase Lead',         dept: 'music',        manager: 'elad',  skillFile: 'yoni-cubase.md' },
   { id: 'or',     name: 'אור',   role: 'Cubase',              dept: 'music',        manager: 'yoni',  skillFile: 'or-musician-cubase.md',  refs: ['omri-production/references/studio-plugins.md'] },
   { id: 'shai',   name: 'שי',    role: 'Cubase',              dept: 'music',        manager: 'yoni',  skillFile: 'shai-dj-cubase.md' },
+  { id: 'guy',    name: 'גיא',   role: 'Trend Intelligence',  dept: 'music',        manager: 'elad',  skillFile: 'guy-trends.md' },
   // Art & Visual
   { id: 'daniel', name: 'דניאל', role: 'מנהל אמנות וויזואל', dept: 'art',          manager: null,    skillFile: 'daniel-creators.md' },
   { id: 'eden',   name: 'עדן',   role: 'Video Art Lead',      dept: 'art',          manager: 'daniel', skillFile: 'eden-videoart.md' },
@@ -432,6 +433,19 @@ router.delete('/production/:id', requireAuth, async (req, res) => {
   try {
     const { rows } = await pool.query(
       `DELETE FROM production_queue WHERE id = $1 RETURNING id`,
+      [req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'not found' });
+    res.json({ ok: true, id: rows[0].id });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.delete('/variation-log/:id', requireAuth, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `DELETE FROM creative_variation_log WHERE id = $1 RETURNING id`,
       [req.params.id]
     );
     if (!rows.length) return res.status(404).json({ error: 'not found' });

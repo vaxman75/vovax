@@ -24,6 +24,7 @@ import musicRouter from './routes/music.js';
 import studioRouter from './routes/studio.js';
 import briefRouter from './routes/brief.js';
 import googleRouter from './routes/google.js';
+import trendsRouter from './routes/trends.js';
 import { requireAuth } from './middleware/auth.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -106,6 +107,7 @@ app.use('/api/music', musicRouter);
 app.use('/api/studio', studioRouter);
 app.use('/api/brief',  briefRouter);
 app.use('/api/google', googleRouter);
+app.use('/api/trends', trendsRouter);
 
 // Serve React build in production
 if (process.env.NODE_ENV === 'production') {
