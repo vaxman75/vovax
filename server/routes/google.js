@@ -135,12 +135,15 @@ export async function getGoogleAccessToken() {
 router.get('/status', async (_req, res) => {
   try {
     const token = await getGoogleAccessToken();
-    const r = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+    // NOT /oauth2/v2/userinfo — that requires an openid/email scope we
+    // deliberately never requested (drive.file is intentionally narrow).
+    // Drive's own `about` endpoint works with the scope we actually have.
+    const r = await fetch(`${DRIVE_API}/about?fields=user`, {
       headers: { Authorization: `Bearer ${token}` },
     });
-    const me = await r.json();
-    if (!r.ok) return res.json({ connected: false, error: me.error ?? r.status });
-    res.json({ connected: true, email: me.email });
+    const data = await r.json();
+    if (!r.ok) return res.json({ connected: false, error: data.error ?? r.status });
+    res.json({ connected: true, email: data.user?.emailAddress, name: data.user?.displayName });
   } catch (err) {
     res.json({ connected: false, error: err.message });
   }
