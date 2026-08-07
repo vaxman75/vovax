@@ -166,12 +166,20 @@ If you can't find clear signal for a genre's specific field, use null for that f
   return { rows, guriFlag, guriNote };
 }
 
-// Returns the latest trend row for a SPECIFIC genre, or null if none / stale.
-export async function getLatestTrend(genreKey, maxAgeDays = 10) {
-  const { rows } = await pool.query(
-    `SELECT * FROM trend_intelligence WHERE genre = $1 ORDER BY pulled_at DESC LIMIT 1`,
-    [genreKey]
-  );
+// Returns the latest trend row for a SPECIFIC genre, or — when genreKey is
+// omitted — the single most-recently-pulled row across any genre. Team A
+// always passes a genreKey (it picks one per brief); Team B currently has no
+// genre selector, so it calls this with no argument for a general signal.
+// Returns null if none exists / stale.
+export async function getLatestTrend(genreKey = null, maxAgeDays = 10) {
+  const { rows } = genreKey
+    ? await pool.query(
+        `SELECT * FROM trend_intelligence WHERE genre = $1 ORDER BY pulled_at DESC LIMIT 1`,
+        [genreKey]
+      )
+    : await pool.query(
+        `SELECT * FROM trend_intelligence ORDER BY pulled_at DESC LIMIT 1`
+      );
   const row = rows[0];
   if (!row) return null;
   const ageMs = Date.now() - Number(row.pulled_at);
