@@ -455,6 +455,31 @@ router.delete('/variation-log/:id', requireAuth, async (req, res) => {
   }
 });
 
+router.delete('/decisions-log/:id', requireAuth, async (req, res) => {
+  try {
+    const { rows } = await pool.query(`DELETE FROM decisions_log WHERE id=$1 RETURNING id`, [req.params.id]);
+    if (!rows.length) return res.status(404).json({ error: 'not found' });
+    res.json({ ok: true, id: rows[0].id });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/decisions-log', requireAuth, async (req, res) => {
+  const { title, decision, decidedBy, scope = 'company', notes } = req.body ?? {};
+  if (!title?.trim() || !decision?.trim()) return res.status(400).json({ error: 'title and decision required' });
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO decisions_log (title, decision, decided_by, scope, notes, decided_at)
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+      [title.trim(), decision.trim(), decidedBy ?? null, scope, notes ?? null, Date.now()]
+    );
+    res.json({ ok: true, entry: rows[0] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Manual cleanup — reject/fail states created before the delete-on-reject fix
 // (2026-08-07) are stuck as archived rows. This purges them retroactively.
 router.post('/music-queue/purge-stale', requireAuth, async (_req, res) => {

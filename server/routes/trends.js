@@ -9,45 +9,59 @@ const router = Router();
 // Each brief (Team A or Team B) targets ONE of these per track/piece. Reference
 // artists and fallback ranges are used only when no fresh trend pull exists yet
 // for that specific genre — real chart data always wins when available.
+// craftHint: real arrangement/harmony/sound-design knowledge per genre, folded
+// directly into the ACE-Step prompt (see buildPrompt() in music.js) — this is
+// the Team A knowledge handoff from אלעד (2026-08-07): same caliber of real
+// craft detail as Team B's DAW documentation, scoped for autonomous generation
+// via prompt text rather than a human operating a DAW. Full detail in
+// references/genre-craft-guide.md; these are the compressed prompt-ready forms.
 export const GENRES = {
   melodic_house_techno: {
     label: 'Melodic House & Techno', beatportGenre: 'Melodic House & Techno',
     refArtists: ['Tale Of Us', 'Anyma', 'ARTBAT', 'Stephan Bodzin', 'Adriatique', 'Delta Vaults'],
     fallbackBpm: [118, 128], fallbackMajor: ['E', 'C', 'D'], fallbackMinor: ['G', 'F', 'B'],
+    craftHint: 'minimal 16-32 bar intro, breakdown at two-thirds mark stripped to pad and atmosphere, i-VI-III-VII minor loop harmony, minor 7th/9th melodic lead',
   },
   tech_house: {
     label: 'Tech House', beatportGenre: 'Tech House',
     refArtists: ['Fisher', 'John Summit', 'Chris Lake', 'Dennis Cruz'],
     fallbackBpm: [124, 128], fallbackMajor: ['F', 'G'], fallbackMinor: ['A', 'D'],
+    craftHint: 'groove-first 2-4 bar loop layering not big harmonic movement, minimal-to-no chords, rhythmic bassline hook, vocal chops as melodic-rhythmic element, dry club-functional mix',
   },
   minimal_deep_tech: {
     label: 'Minimal / Deep Tech', beatportGenre: 'Minimal / Deep Tech',
     refArtists: ['Recondite', 'Fideles', 'Better Lost Than Stupid'],
     fallbackBpm: [122, 128], fallbackMajor: ['C'], fallbackMinor: ['G', 'A'],
+    craftHint: 'sparse arrangement, micro-variation over long 8-16 bar loops, minimal harmonic content, hypnotic repetition, no dramatic drop',
   },
   house: {
     label: 'House', beatportGenre: 'House',
     refArtists: ['Disclosure', 'Purple Disco Machine', 'Dom Dolla'],
     fallbackBpm: [122, 126], fallbackMajor: ['F', 'C'], fallbackMinor: ['D', 'A'],
+    craftHint: 'classic 4-8 bar phrase song structure, vocal hook, classic house piano chord stabs (7th/9th voicings), warm analog-style filtering',
   },
   afro_house: {
     label: 'Afro House', beatportGenre: 'Afro House',
     refArtists: ['Black Coffee', 'Culoe De Song', 'Enoo Napa'],
     fallbackBpm: [118, 123], fallbackMajor: ['D'], fallbackMinor: ['F', 'G'],
+    craftHint: 'percussion-forward arrangement (layered polyrhythmic shakers/congas/talking-drum samples driving the structure, not chord progression), modal/pentatonic melodic elements, organic live-feel samples',
   },
   progressive_house: {
     label: 'Progressive House', beatportGenre: 'Progressive House',
     refArtists: ['Eli & Fur', 'Lane 8', 'Yotto'],
     fallbackBpm: [118, 124], fallbackMajor: ['A', 'E'], fallbackMinor: ['D', 'B'],
+    craftHint: 'long gradual 32-64 bar build, incrementally evolving melodic motif, vi-IV-I-V style major/relative-minor chord movement, lush layered pads, uplifting emotional arc',
   },
   electronica: {
     label: 'Electronica', beatportGenre: 'Electronica',
     refArtists: ['Bonobo', 'ODESZA', 'RÜFÜS DU SOL'],
     fallbackBpm: [100, 120], fallbackMajor: ['C', 'G'], fallbackMinor: ['A'],
+    craftHint: 'through-composed structure not loop-based, jazz-influenced 7th/9th/11th chord voicings, organic textures blended with glitch/IDM elements',
   },
   edm_mainstage: {
     label: 'EDM / Mainstage', beatportGenre: 'Big Room',
     refArtists: ['Anyma', 'Martin Garrix', 'Timmy Trumpet'],
+    craftHint: 'short intro into buildup (riser, snare roll, heavy compression), anthemic drop with simple powerful 2-4 chord loop like i-VI-III-VII, huge stereo-width supersaws',
     fallbackBpm: [126, 150], fallbackMajor: ['F', 'C'], fallbackMinor: ['A', 'E'],
   },
 };

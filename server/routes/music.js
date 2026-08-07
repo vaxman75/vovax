@@ -246,7 +246,7 @@ async function amitBrief() {
   const duration_s  = PLATFORM_SECS[platform] ?? 180;
   const prompt = buildPrompt({
     contextHour, bpmOverride: bpm, weirdness, energyLevel, mood, key, bassline, pad, kick,
-    genreFlavor: `${genreDef.label}, ${arrangementEnergyObj.desc}`, referenceArtist, vocalFeature,
+    genreFlavor: `${genreDef.label}, ${arrangementEnergyObj.desc}${genreDef.craftHint ? `, ${genreDef.craftHint}` : ''}`, referenceArtist, vocalFeature,
   });
 
   return {
@@ -596,7 +596,7 @@ export async function runMusicCycle() {
     bassline:    params.bassline,
     pad:         params.pad,
     kick:        params.kick,
-    genreFlavor: `${GENRES[params.genre]?.label ?? 'Melodic House & Techno'}, ${ARRANGEMENT_ENERGY_POOL.find(e => e.key === params.arrangementEnergy)?.desc ?? ''}`,
+    genreFlavor: `${GENRES[params.genre]?.label ?? 'Melodic House & Techno'}, ${ARRANGEMENT_ENERGY_POOL.find(e => e.key === params.arrangementEnergy)?.desc ?? ''}${GENRES[params.genre]?.craftHint ? `, ${GENRES[params.genre].craftHint}` : ''}`,
     referenceArtist: params.referenceArtist,
     vocalFeature:    params.vocalFeature,
     userBrief,
