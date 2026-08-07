@@ -431,13 +431,16 @@ async function runQaReview(item) {
         bannedWords: extractBannedWords(qa.issues ?? []),
       };
 
+      // Universal rule: rejected content is deleted immediately, not archived
+      // under status='rejected'. Auto-regen creates a fresh row afterward —
+      // it's a new attempt, not a resurrection of the rejected one.
       if (item.channel === 'vovax') {
-        const updated = await pool.query(
-          `UPDATE publish_queue SET status='rejected', decided_at=$1, notes=$2
-           WHERE id=$3 AND status IN ('pending','rendering') RETURNING id`,
-          [Date.now(), reason, item.id]
+        const deleted = await pool.query(
+          `DELETE FROM publish_queue WHERE id=$1 AND status IN ('pending','rendering') RETURNING id`,
+          [item.id]
         );
-        if (updated.rows.length > 0) {
+        if (deleted.rows.length > 0) {
+          console.log(`Publishing: ${reason} — deleted ${item.id}, regenerating`);
           createVovaxItem({
             platform:        item.platform ?? 'instagram',
             topic:           item.topic,
@@ -448,18 +451,19 @@ async function runQaReview(item) {
           }).catch(e => console.error('QA auto-regen (vovax) failed:', e.message));
         }
       } else if (item.channel === 'signal') {
-        const updated = await pool.query(
-          `UPDATE publish_queue SET status='rejected', decided_at=$1, notes=$2
-           WHERE id=$3 AND status='pending' RETURNING id`,
-          [Date.now(), reason, item.id]
+        const deleted = await pool.query(
+          `DELETE FROM publish_queue WHERE id=$1 AND status='pending' RETURNING id`,
+          [item.id]
         );
-        if (updated.rows.length > 0) {
+        if (deleted.rows.length > 0) {
+          console.log(`Publishing[signal]: ${reason} — deleted ${item.id}, regenerating`);
           regenerateSignalItem(item, priorQaFailures, item.duration_hint ?? null)
             .catch(e => console.error('QA auto-regen (signal) failed:', e.message));
         }
       }
     }
-    // If attempts >= 3: leave as pending so user can review manually
+    // If attempts >= 3: leave as pending so user can review manually — this is
+    // an escalation to a human decision, not the archive-on-reject anti-pattern.
   }
 
   return { ok: true, qa_status: qaStatus, qa_reason: qa.reason ?? null, qa_issues: qa.issues ?? [], employee: 'yuval-contentcheck' };
@@ -635,16 +639,17 @@ router.post('/vovax/:id/approve', async (req, res) => {
   res.json({ ok: true, item: rows[0] });
 });
 
-// App: reject — auto-regenerates new version with same track + topic
+// App: reject — deletes immediately (universal rule: no 'rejected' archive
+// status), then auto-regenerates a fresh new version with same track + topic
 router.post('/vovax/:id/reject', async (req, res) => {
   const reason = req.body.reason ?? req.body.notes ?? null;
   const { rows } = await pool.query(
-    `UPDATE publish_queue SET status='rejected', decided_at=$1, notes=$2
-     WHERE id=$3 AND channel='vovax' AND status IN ('pending','approved') RETURNING *`,
-    [Date.now(), reason, req.params.id]
+    `DELETE FROM publish_queue WHERE id=$1 AND channel='vovax' AND status IN ('pending','approved') RETURNING *`,
+    [req.params.id]
   );
   if (!rows[0]) return res.status(404).json({ error: 'not found or already published' });
   const old = rows[0];
+  console.log(`Publishing: rejected + deleted ${old.id}${reason ? ` — ${reason}` : ''}`);
 
   // Auto-regenerate: new script + new HeyGen render, same track + topic
   let regenerated = null;

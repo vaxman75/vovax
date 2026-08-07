@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import pool from '../db/index.js';
+import { requireAuth } from '../middleware/auth.js';
 
 const router = Router();
 
@@ -36,6 +37,21 @@ router.post('/today', async (req, res) => {
       [date, brief.trim(), Date.now()]
     );
     res.json({ ok: true, entry: rows[0] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Admin-only cleanup — removes today's brief so runMusicCycle correctly skips
+// until the user submits their own real one via /brief.
+router.delete('/today', requireAuth, async (_req, res) => {
+  try {
+    const date = todayIL();
+    const { rows } = await pool.query(
+      `DELETE FROM morning_brief WHERE date = $1 RETURNING date`,
+      [date]
+    );
+    res.json({ ok: true, deleted: rows[0]?.date ?? null });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

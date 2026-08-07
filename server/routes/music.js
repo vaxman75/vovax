@@ -508,12 +508,14 @@ ${talia.fix_if_rejected ? `הערת תיקון טליה: ${talia.fix_if_rejected
 
 async function maybeRegenerate(item, reason) {
   const rejCount = (item.rejection_count ?? 0) + 1;
-  await pool.query(
-    `UPDATE music_queue SET status='failed', rejection_count=$1, updated_at=$2 WHERE id=$3`,
-    [rejCount, Date.now(), item.id]
-  );
+
+  // Universal rule: rejected content is deleted immediately, not archived under
+  // status='failed'. The row is gone the moment Talia/Amit reject it — visible
+  // history is the console log + Sentry breadcrumb, not a lingering DB row.
+  await pool.query(`DELETE FROM music_queue WHERE id=$1`, [item.id]);
+
   if (rejCount >= 3) {
-    console.log(`Music: ${item.id} gave up after ${rejCount} attempts`);
+    console.log(`Music: ${item.id} gave up after ${rejCount} attempts — deleted, not regenerating (${reason})`);
     return;
   }
   console.log(`Music: regen #${rejCount} for ${item.id} — ${reason}`);
@@ -626,15 +628,18 @@ router.post('/:id/user-approve', requireAuth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// Universal rule: rejection deletes the item immediately — it does not archive
+// under a 'user_rejected' status. A rejected track is gone, not hidden.
 router.post('/:id/user-reject', requireAuth, async (req, res) => {
   const { reason } = req.body ?? {};
   try {
     const { rows } = await pool.query(
-      `UPDATE music_queue SET status='user_rejected', amit_reason=COALESCE($1, amit_reason), updated_at=$2 WHERE id=$3 AND status='user_pending' RETURNING *`,
-      [reason ?? null, Date.now(), req.params.id]
+      `DELETE FROM music_queue WHERE id=$1 AND status='user_pending' RETURNING id`,
+      [req.params.id]
     );
     if (!rows.length) return res.status(404).json({ error: 'not found or not pending' });
-    res.json({ ok: true, item: rows[0] });
+    console.log(`Music: user-rejected ${rows[0].id} (deleted)${reason ? ` — ${reason}` : ''}`);
+    res.json({ ok: true, deleted: rows[0].id });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

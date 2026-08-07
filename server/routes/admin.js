@@ -455,6 +455,19 @@ router.delete('/variation-log/:id', requireAuth, async (req, res) => {
   }
 });
 
+// Manual cleanup — reject/fail states created before the delete-on-reject fix
+// (2026-08-07) are stuck as archived rows. This purges them retroactively.
+router.post('/music-queue/purge-stale', requireAuth, async (_req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `DELETE FROM music_queue WHERE status IN ('failed','user_rejected') RETURNING id`
+    );
+    res.json({ ok: true, deletedIds: rows.map(r => r.id) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── Chat ──────────────────────────────────────────────────────────────────────
 
 router.post('/chat', requireAuth, async (req, res) => {
