@@ -23,6 +23,7 @@ import adminRouter from './routes/admin.js';
 import musicRouter from './routes/music.js';
 import studioRouter from './routes/studio.js';
 import briefRouter from './routes/brief.js';
+import googleRouter from './routes/google.js';
 import { requireAuth } from './middleware/auth.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -104,6 +105,7 @@ app.use('/api/tracks', tracksRouter);
 app.use('/api/music', musicRouter);
 app.use('/api/studio', studioRouter);
 app.use('/api/brief',  briefRouter);
+app.use('/api/google', googleRouter);
 
 // Serve React build in production
 if (process.env.NODE_ENV === 'production') {

@@ -1,11 +1,32 @@
 import { Router } from 'express';
+import multer from 'multer';
 import { readFileSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import pool from '../db/index.js';
+import { uploadToMasteringFolder } from './google.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const router = Router();
+
+const AUDIO_MIME_TYPES = new Set([
+  'audio/wav', 'audio/x-wav', 'audio/wave',
+  'audio/mpeg', 'audio/mp3',
+  'audio/aiff', 'audio/x-aiff',
+  'audio/flac', 'audio/x-flac',
+  'audio/ogg', 'audio/mp4', 'audio/x-m4a', 'audio/aac',
+]);
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 500 * 1024 * 1024 }, // 500MB — generous for uncompressed masters
+  fileFilter: (_req, file, cb) => {
+    if (!AUDIO_MIME_TYPES.has(file.mimetype)) {
+      return cb(new Error(`Unsupported file type: ${file.mimetype}. Expected an audio file (wav/mp3/aiff/flac/ogg/m4a).`));
+    }
+    cb(null, true);
+  },
+});
 
 function loadSkill(filename) {
   try { return readFileSync(join(__dirname, '../employees', filename), 'utf-8'); }
@@ -98,6 +119,44 @@ router.post('/mastering', async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// POST /api/studio/mastering-upload — standalone entry point: upload an
+// already-existing track file (no chat session required) for mix/master help.
+// File goes to Google Drive (VOVAX-Mastering-Uploads folder); the Drive link
+// is stored in production_queue for עמרי/נוי/זיב to pick up.
+router.post('/mastering-upload', (req, res) => {
+  upload.single('file')(req, res, async (err) => {
+    if (err) return res.status(400).json({ error: err.message });
+
+    const { title, notes, requestType } = req.body ?? {};
+    if (!title?.trim()) return res.status(400).json({ error: 'title required' });
+    if (!req.file) return res.status(400).json({ error: 'file required' });
+
+    try {
+      const driveFile = await uploadToMasteringFolder(
+        req.file.buffer,
+        req.file.originalname,
+        req.file.mimetype
+      );
+
+      const stage = requestType === 'master' ? 'master' : 'mix';
+      const noteText = [
+        `קובץ קיים הועלה ישירות למאסטרינג (ללא סשן) — ${driveFile.link}`,
+        notes?.trim() || null,
+      ].filter(Boolean).join(' | ');
+
+      const { rows } = await pool.query(
+        `INSERT INTO production_queue (track_id, title, stage, assigned_to, notes)
+         VALUES (NULL, $1, $2, 'נוי', $3)
+         RETURNING id, title, stage, assigned_to, created_at`,
+        [title.trim(), stage, noteText]
+      );
+      res.json({ ok: true, entry: rows[0], driveLink: driveFile.link });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
 });
 
 export default router;

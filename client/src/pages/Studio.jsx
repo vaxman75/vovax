@@ -70,7 +70,7 @@ function Chip({ active, onClick, children, color }) {
 
 // ── Phase 1: Studio choice ────────────────────────────────────────────────────
 
-function StudioChoice({ onSelect }) {
+function StudioChoice({ onSelect, onUpload }) {
   return (
     <div dir="rtl" style={{ maxWidth: 680, margin: '48px auto', padding: '0 20px', fontFamily: "'Space Grotesk', sans-serif", color: '#F2F1ED' }}>
       <h2 style={{ fontSize: 22, fontWeight: 700, color: '#46C7FF', marginBottom: 6 }}>Studio</h2>
@@ -97,6 +97,112 @@ function StudioChoice({ onSelect }) {
           </button>
         ))}
       </div>
+
+      <div style={{ marginTop: 24, textAlign: 'center' }}>
+        <button type="button" onClick={onUpload}
+          style={{ background: 'none', border: 'none', color: '#8B8A85', fontSize: 12, cursor: 'pointer', textDecoration: 'underline' }}>
+          כבר יש לי טראק מוכן — העלה ישירות למאסטרינג (בלי סשן) ←
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Standalone upload: existing track straight to mastering, no chat session ──
+
+function MasteringUpload({ onBack }) {
+  const [title, setTitle]             = useState('');
+  const [requestType, setRequestType] = useState('mix');
+  const [notes, setNotes]             = useState('');
+  const [file, setFile]               = useState(null);
+  const [status, setStatus]           = useState(null); // null | 'uploading' | { ok, ... } | { error }
+  const fileRef = useRef();
+
+  async function submit(e) {
+    e.preventDefault();
+    if (!title.trim() || !file) return;
+    setStatus('uploading');
+    try {
+      const fd = new FormData();
+      fd.append('title', title.trim());
+      fd.append('requestType', requestType);
+      fd.append('notes', notes.trim());
+      fd.append('file', file);
+      const r = await fetch('/api/studio/mastering-upload', { method: 'POST', body: fd });
+      const data = await r.json();
+      setStatus(r.ok ? { ok: true, ...data } : { error: data.error ?? 'שגיאה לא ידועה' });
+    } catch (err) {
+      setStatus({ error: 'שגיאת רשת: ' + err.message });
+    }
+  }
+
+  return (
+    <div dir="rtl" style={{ maxWidth: 560, margin: '32px auto', padding: '0 20px', fontFamily: "'Space Grotesk', sans-serif", color: '#F2F1ED' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
+        <button type="button" onClick={onBack} style={{ color: '#8B8A85', background: 'none', border: 'none', cursor: 'pointer', fontSize: 12 }}>← חזרה</button>
+        <span style={{ fontSize: 17, fontWeight: 700, color: '#22C55E' }}>העלאת טראק קיים למאסטרינג</span>
+      </div>
+      <p style={{ color: '#8B8A85', fontSize: 12, marginBottom: 24 }}>
+        לטראק שכבר קיים ורק צריך עזרה במיקס/מאסטרינג — בלי לעבור סשן שיתופי. הקובץ עולה ל-Google Drive
+        (תיקיית VOVAX-Mastering-Uploads) ונכנס ישירות לתור של נוי/זיב.
+      </p>
+
+      <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div>
+          <div style={{ color: '#8B8A85', fontSize: 12, marginBottom: 6 }}>שם הטראק</div>
+          <input value={title} onChange={e => setTitle(e.target.value)} required
+            style={{ ...S, width: '100%', borderRadius: 8, padding: '8px 12px', fontSize: 13, boxSizing: 'border-box' }} />
+        </div>
+
+        <div>
+          <div style={{ color: '#8B8A85', fontSize: 12, marginBottom: 6 }}>סוג בקשה</div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {[['mix', 'מיקס'], ['master', 'מאסטרינג']].map(([v, label]) => (
+              <button key={v} type="button" onClick={() => setRequestType(v)}
+                style={{
+                  border: `1px solid ${requestType === v ? '#22C55E' : '#232326'}`,
+                  color: requestType === v ? '#22C55E' : '#8B8A85',
+                  background: requestType === v ? '#22C55E15' : 'transparent',
+                  borderRadius: 6, padding: '6px 16px', fontSize: 12, cursor: 'pointer',
+                }}>
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <div style={{ color: '#8B8A85', fontSize: 12, marginBottom: 6 }}>קובץ אודיו</div>
+          <input ref={fileRef} type="file" accept="audio/*"
+            onChange={e => setFile(e.target.files?.[0] ?? null)} required
+            style={{ ...S, width: '100%', borderRadius: 8, padding: '8px 12px', fontSize: 12, boxSizing: 'border-box' }} />
+          {file && <div style={{ color: '#555', fontSize: 11, marginTop: 4 }}>{file.name} — {(file.size / 1024 / 1024).toFixed(1)}MB</div>}
+        </div>
+
+        <div>
+          <div style={{ color: '#8B8A85', fontSize: 12, marginBottom: 6 }}>הערות <span style={{ color: '#555' }}>(אופציונלי)</span></div>
+          <textarea value={notes} onChange={e => setNotes(e.target.value)}
+            placeholder="למשל: הבס חלש מדי, צריך יותר הד על הפאדים..."
+            style={{ ...S, width: '100%', borderRadius: 8, padding: 10, minHeight: 70, resize: 'vertical', fontSize: 12, boxSizing: 'border-box' }} />
+        </div>
+
+        <button type="submit" disabled={status === 'uploading' || !title.trim() || !file}
+          style={{
+            background: '#22C55E', color: '#0A0A0C', borderRadius: 8, padding: '12px 0',
+            fontWeight: 700, fontSize: 14, border: 'none',
+            cursor: (status === 'uploading' || !title.trim() || !file) ? 'not-allowed' : 'pointer',
+            opacity: (status === 'uploading' || !title.trim() || !file) ? 0.5 : 1,
+          }}>
+          {status === 'uploading' ? 'מעלה...' : 'העלה למאסטרינג →'}
+        </button>
+
+        {status?.ok && (
+          <div style={{ color: '#22C55E', fontSize: 12 }}>
+            נשלח לנוי ✓ — ID #{status.entry?.id} · <a href={status.driveLink} target="_blank" rel="noreferrer" style={{ color: '#46C7FF' }}>קובץ ב-Drive</a>
+          </div>
+        )}
+        {status?.error && <div style={{ color: '#EF4444', fontSize: 12 }}>{status.error}</div>}
+      </form>
     </div>
   );
 }
@@ -435,11 +541,14 @@ function StudioChat({ studio, params, onBack }) {
 
 export default function Studio() {
   const [studio, setStudio] = useState(null);
-  const [phase,  setPhase]  = useState(1); // 1=choice, 2=params, 3=chat
+  const [phase,  setPhase]  = useState(1); // 1=choice, 2=params, 3=chat, 4=standalone upload
   const [params, setParams] = useState(null);
 
   if (phase === 1) {
-    return <StudioChoice onSelect={s => { setStudio(s); setPhase(2); }} />;
+    return <StudioChoice onSelect={s => { setStudio(s); setPhase(2); }} onUpload={() => setPhase(4)} />;
+  }
+  if (phase === 4) {
+    return <MasteringUpload onBack={() => setPhase(1)} />;
   }
   if (phase === 2) {
     return (
