@@ -146,30 +146,153 @@ async function fetchHeyGenData() {
   ]);
   const avatarData = await avatarRes.json();
   const voiceData  = await voiceRes.json();
-  const avatars = (avatarData.data?.avatars ?? []).map(({ avatar_id, avatar_name, gender }) => ({ avatar_id, name: avatar_name ?? null, gender: gender ?? null }));
+  const avatars = (avatarData.data?.avatars ?? []).map(({ avatar_id, avatar_name, gender, preview_image_url }) => ({ avatar_id, name: avatar_name ?? null, gender: gender ?? null, preview_image_url: preview_image_url ?? null }));
   const voices  = (voiceData.data?.list ?? voiceData.data?.voices ?? []).map(({ voice_id, name, language, gender, preview_audio, emotion_support }) => ({ voice_id, name: name ?? null, language: language ?? null, gender: gender ?? null, preview_audio: preview_audio ?? null, emotion_support: emotion_support ?? false }));
   _heygenCache = { avatars, voices };
   _heygenCacheAt = now;
   return _heygenCache;
 }
 
-async function getTopPicks(persona, usedAvatarIds = []) {
+// Which "energy" a piece of content needs — club/gig content needs a visibly
+// energetic avatar, studio/reflective content needs a calmer one. Used to
+// stop e.g. a still corporate-looking avatar being used for club promo.
+const TOPIC_ENERGY = {
+  track_release:     'high', gig_announcement: 'high',
+  behind_scenes:      'calm', studio_session:   'calm', fan_message: 'calm',
+  discovery:          'high', track_feature:    'high', underground_pick: 'high',
+  artist_spotlight: 'neutral', genre_deep_dive: 'neutral',
+};
+
+// Real visual verification — replaces blind name-keyword matching (the actual
+// mechanism behind "avatar doesn't look right for the brand" and "suit used
+// for club content": HeyGen returns a real preview_image_url per avatar, but
+// it was being discarded; casting was purely a string match against the
+// avatar's auto-generated name, which often has no relation to how it looks).
+async function visionVetAvatar(avatar, persona) {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey || !avatar.preview_image_url) return { verdict: 'rejected', energy: null, notes: 'no preview image or API key' };
+
+  const standards = loadEmployeeSkill('references/avatar-casting-standards.md') ?? '';
+
+  try {
+    const imgRes = await fetch(avatar.preview_image_url);
+    if (!imgRes.ok) return { verdict: 'rejected', energy: null, notes: 'preview image fetch failed' };
+    const buf = Buffer.from(await imgRes.arrayBuffer());
+    // HeyGen serves preview images with a generic 'binary/octet-stream' content-type
+    // header even though the file is a real webp/png/jpg — trust the URL extension,
+    // not the header, or Claude's vision API rejects the invalid media type.
+    const ext = avatar.preview_image_url.match(/\.(webp|png|jpe?g|gif)(\?|$)/i)?.[1]?.toLowerCase();
+    const EXT_TO_MIME = { webp: 'image/webp', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif' };
+    const headerType = imgRes.headers.get('content-type') ?? '';
+    const mediaType = EXT_TO_MIME[ext] ?? (headerType.startsWith('image/') ? headerType : 'image/webp');
+
+    const system = `You are אלה, avatar casting authority at VOVAX. Apply these real casting standards exactly — do not use vague adjectives, use the concrete criteria below:\n\n${standards}\n\nPersona being cast for: ${persona === 'signal' ? 'Signal Detected (anonymous underground curator)' : 'VOVAX (the artist, personal underground techno persona)'}.`;
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 300,
+        system,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: mediaType, data: buf.toString('base64') } },
+            { type: 'text', text: 'Look at this actual avatar photo. Apply the casting standards above. Score 0-10 how well it fits VOVAX brand casting (10 = perfect underground/night/studio fit, 0 = corporate headshot). Respond with ONLY JSON: {"score":0-10,"energy":"high"|"calm"|"neutral","notes":"one concrete sentence — what you actually see (clothing, pose, setting), not a vague adjective"}' },
+          ],
+        }],
+      }),
+    });
+    const data = await resp.json();
+    const text = (data.content?.[0]?.text ?? '').replace(/^```(?:json)?\s*/m, '').replace(/\s*```\s*$/m, '').trim();
+    const parsed = JSON.parse(text);
+    const score = Number.isFinite(parsed.score) ? Math.max(0, Math.min(10, Math.round(parsed.score))) : 0;
+    return {
+      score,
+      verdict: score >= 6 ? 'approved' : 'rejected', // kept for readability in logs/cache, selection uses score
+      energy:  ['high', 'calm', 'neutral'].includes(parsed.energy) ? parsed.energy : null,
+      notes:   parsed.notes ?? '',
+    };
+  } catch (e) {
+    return { score: 0, verdict: 'rejected', energy: null, notes: `vision check error: ${e.message}` };
+  }
+}
+
+async function getVisionVerdict(avatar, persona) {
+  const { rows } = await pool.query(
+    `SELECT verdict, energy, visual_notes, score FROM avatar_vision_cache WHERE avatar_id=$1 AND persona=$2`,
+    [avatar.avatar_id, persona]
+  );
+  if (rows[0] && rows[0].score !== null) return { verdict: rows[0].verdict, energy: rows[0].energy, notes: rows[0].visual_notes, score: rows[0].score };
+
+  const result = await visionVetAvatar(avatar, persona);
+  await pool.query(
+    `INSERT INTO avatar_vision_cache (avatar_id, persona, verdict, energy, visual_notes, score, checked_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7)
+     ON CONFLICT (avatar_id, persona) DO UPDATE SET verdict=$3, energy=$4, visual_notes=$5, score=$6, checked_at=$7`,
+    [avatar.avatar_id, persona, result.verdict, result.energy, result.notes, result.score, Date.now()]
+  );
+  console.log(`[ART/vision] ${avatar.avatar_id} (${persona}): score=${result.score}/10 energy=${result.energy} — ${result.notes}`);
+  return result;
+}
+
+async function getTopPicks(persona, usedAvatarIds = [], energyHint = null) {
   const { avatars, voices } = await fetchHeyGenData();
 
-  // Score all persona-fit avatars
+  // Cheap name-keyword pre-filter, narrows 1264 HeyGen avatars before the
+  // real (expensive) check runs
   const scored = avatars
     .map(a => ({ ...a, _score: scoreAvatar(a, persona) }))
     .filter(a => a._score > 0)
     .sort((a, b) => b._score - a._score);
 
-  // Rotation: prefer avatars not used recently; cycle through full set if all have been used
-  const fresh = scored.filter(a => !usedAvatarIds.includes(a.avatar_id));
-  const pool  = fresh.length > 0 ? fresh : scored;
+  if (scored.length === 0) throw new Error(`getTopPicks(${persona}): no name-keyword candidates at all`);
 
-  // Pick randomly among the top-scoring tier — real variety, never always index 0
-  const topScore = pool[0]?._score ?? 0;
-  const topTier  = pool.filter(a => a._score === topScore);
-  const topAvatar = topTier[Math.floor(Math.random() * topTier.length)] ?? null;
+  // Real visual verification against אלה's actual casting standards — the
+  // name-keyword filter alone was the mechanism behind "avatar doesn't look
+  // right for the brand": a corporate-suited avatar with a generic name
+  // (no "office"/"suit" literal match) sailed straight through it before.
+  // Bounded + cached so this isn't 1264 vision calls on every generation.
+  const VISION_CHECK_CAP = 80;
+  const visionScored = [];
+  for (const a of scored.slice(0, VISION_CHECK_CAP)) {
+    const v = await getVisionVerdict(a, persona);
+    visionScored.push({ ...a, _visionScore: v.score, _energy: v.energy, _notes: v.notes });
+  }
+  visionScored.sort((a, b) => b._visionScore - a._visionScore);
+
+  // Prefer genuinely good fits (score >= 6). If NONE reach that bar — a real,
+  // logged finding, not assumed — fall back to the best available rather than
+  // hard-failing, but say so loudly so this is visible, not silently accepted
+  // as "fine."
+  const good = visionScored.filter(a => a._visionScore >= 6);
+  let approved;
+  if (good.length > 0) {
+    approved = good;
+  } else {
+    const bestScore = visionScored[0]?._visionScore ?? 0;
+    approved = visionScored.filter(a => a._visionScore === bestScore);
+    console.error(`[ART/vision] getTopPicks(${persona}): NO avatar reached the 6/10 brand-fit bar among ${visionScored.length} checked — using best available (score ${bestScore}/10: "${visionScored[0]?._notes}"). This needs real casting attention, not just code — see אלה's manually-approved list in avatar-casting-standards.md, currently empty.`);
+  }
+  if (approved.length === 0) {
+    throw new Error(`getTopPicks(${persona}): no avatar candidates at all among top ${VISION_CHECK_CAP} name-keyword matches`);
+  }
+
+  // Prefer avatars whose visual energy matches what THIS content needs — club
+  // promo needs a visibly energetic avatar, not the same pool used for a calm
+  // studio-session post. This is the scene-matching fix: energy is now a real
+  // filter, not left to whichever avatar happened to score highest by name.
+  const energyMatched = energyHint ? approved.filter(a => a._energy === energyHint) : [];
+  const candidatePool = energyMatched.length > 0 ? energyMatched : approved;
+
+  // Rotation: prefer avatars not used recently; cycle through full set if all have been used
+  const fresh = candidatePool.filter(a => !usedAvatarIds.includes(a.avatar_id));
+  const finalPool = fresh.length > 0 ? fresh : candidatePool;
+
+  // Pick randomly among the top-scoring tier among survivors — real variety, never always index 0
+  const topScore = finalPool[0]?._score ?? 0;
+  const topTier  = finalPool.filter(a => a._score === topScore);
+  const topAvatar = topTier[Math.floor(Math.random() * topTier.length)] ?? finalPool[0];
 
   // Gender is mandatory — pairing is refused if avatar has no gender metadata
   const avatarGender = topAvatar?.gender ? topAvatar.gender.toLowerCase() : null;
@@ -187,7 +310,7 @@ async function getTopPicks(persona, usedAvatarIds = []) {
   // ElevenLabs voice — gender-matched so any Zapier narration path also gets the right voice
   const elVoice = await fetchElevenLabsVoice(avatarGender);
 
-  console.log(`getTopPicks(${persona}): avatar="${topAvatar?.name}" gender=${avatarGender} heygen="${topVoice?.name}" el="${elVoice?.name ?? 'none'}" fresh=${!usedAvatarIds.includes(topAvatar?.avatar_id)}`);
+  console.log(`getTopPicks(${persona}): avatar="${topAvatar?.name}" visionEnergy=${topAvatar._energy} energyHint=${energyHint} gender=${avatarGender} heygen="${topVoice?.name}" el="${elVoice?.name ?? 'none'}" fresh=${!usedAvatarIds.includes(topAvatar?.avatar_id)} (${approved.length}/${Math.min(scored.length, VISION_CHECK_CAP)} passed vision)`);
 
   return {
     avatar_id:     topAvatar?.avatar_id  ?? null,
@@ -201,12 +324,14 @@ async function getTopPicks(persona, usedAvatarIds = []) {
 }
 
 // Submit a HeyGen video render job — returns {video_id, avatar_id, voice_id, el_voice_id, avatar_gender} or null
-async function submitHeyGenRender(script, persona, usedAvatarIds = []) {
+async function submitHeyGenRender(script, persona, usedAvatarIds = [], topic = null) {
   const apiKey = process.env.HEYGEN_API_KEY;
   if (!apiKey || apiKey === 'placeholder') return null;
 
+  const energyHint = TOPIC_ENERGY[topic] ?? null;
+
   let picks;
-  try { picks = await getTopPicks(persona, usedAvatarIds); } catch (e) {
+  try { picks = await getTopPicks(persona, usedAvatarIds, energyHint); } catch (e) {
     console.error('submitHeyGenRender: getTopPicks failed:', e.message);
     return null;
   }
@@ -221,10 +346,15 @@ async function submitHeyGenRender(script, persona, usedAvatarIds = []) {
     context:      persona,
   });
 
+  // Pacing fix: 1.0 (HeyGen's narration default) is what was reading as slow
+  // and book-like. High-energy short-form content gets a snappier delivery
+  // pace; calm/studio content stays close to natural. Neither is "narration."
+  const speed = energyHint === 'high' ? 1.15 : energyHint === 'calm' ? 1.05 : 1.1;
+
   const body = {
     video_inputs: [{
       character:  { type: 'avatar', avatar_id: picks.avatar_id, avatar_style: 'normal' },
-      voice:      { type: 'text',   input_text: script,         voice_id: picks.voice_id, speed: 1.0 },
+      voice:      { type: 'text',   input_text: script,         voice_id: picks.voice_id, speed },
       background: { type: 'color',  value: '#000000' },
     }],
     aspect_ratio: '9:16',
@@ -348,11 +478,18 @@ async function generateScript(persona, track, topic, priorFailures = null, durat
     corrective = `\n\n⚠ PREVIOUS DRAFT FAILED QA (attempt #${priorFailures.attempt ?? 2}). MANDATORY corrections:\nRejection: ${priorFailures.reason ?? ''}${issueLines}${bannedLine}\n- No metaphors, no poetic phrasing — blunt, direct, real\n- Sentence structure must be different from the failed draft`;
   }
 
+  // Pacing fix: this is written to be SPOKEN by an avatar in a short-form video,
+  // not read as prose. The old prompt had zero delivery guidance and explicitly
+  // invited unlimited-length literary narration — that combination is exactly
+  // what produced slow, book-like voiceover. Length policy is untouched
+  // (עמית's "no artificial cap" stands); this fixes RHYTHM, not duration.
+  const pacingGuide = `- Write for SPOKEN delivery at short-form video pace, not written narration\n- Short sentences (5-12 words). Break up any sentence that runs longer\n- No semicolons, no em-dash mid-thought interruptions, no comma-stacked clauses\n- Energetic, forward-moving rhythm — every sentence should sound like it could be said in one breath\n- Avoid introspective slow-build prose ("that moment when...", "I realized...", extended sensory description)`;
+
   let prompt;
   if (persona === 'signal') {
-    prompt = `You are Signal Detected, an anonymous underground music curator posting on Instagram/TikTok.\n${angle}\n\nTrack: "${title}"\nGenre: ${track.genre ?? 'underground techno'}\n${desc ? `Description: ${desc}` : ''}\n\nWrite a curator post. Hard rules:\n${lengthGuide}\n- NEVER mention the artist name or "VOVAX"\n- NEVER say "underground" or "heavy melodic techno" verbatim\n- Tone: clipped, direct, scout who found something first — no flowery language\n- No hashtags, no emojis${corrective}\nWrite only the post text, nothing else.`;
+    prompt = `You are Signal Detected, an anonymous underground music curator posting on Instagram/TikTok.\n${angle}\n\nTrack: "${title}"\nGenre: ${track.genre ?? 'underground techno'}\n${desc ? `Description: ${desc}` : ''}\n\nWrite a curator post. Hard rules:\n${lengthGuide}\n${pacingGuide}\n- NEVER mention the artist name or "VOVAX"\n- NEVER say "underground" or "heavy melodic techno" verbatim\n- Tone: clipped, direct, scout who found something first — no flowery language\n- No hashtags, no emojis${corrective}\nWrite only the post text, nothing else.`;
   } else {
-    prompt = `You are VOVAX, an underground heavy melodic techno artist posting on Instagram/TikTok.\n${angle}\n\nTrack: "${title}"\nGenre: ${track.genre ?? 'heavy melodic techno'}\n${desc ? `Description: ${desc}` : ''}\n\nWrite a first-person post. Hard rules:\n${lengthGuide}\n- Dark, minimal, intimate — no marketing language\n- No hashtags, no emojis${corrective}\nWrite only the post text, nothing else.`;
+    prompt = `You are VOVAX, an underground heavy melodic techno artist posting on Instagram/TikTok.\n${angle}\n\nTrack: "${title}"\nGenre: ${track.genre ?? 'heavy melodic techno'}\n${desc ? `Description: ${desc}` : ''}\n\nWrite a first-person post. Hard rules:\n${lengthGuide}\n${pacingGuide}\n- Dark, minimal, intimate in TONE — but energetic and punchy in RHYTHM, not slow narration\n- No hashtags, no emojis${corrective}\nWrite only the post text, nothing else.`;
   }
 
   // max_tokens raised: 150 was too low for longer narratives when no duration cap
@@ -575,7 +712,7 @@ async function createVovaxItem({ platform = 'instagram', topic: forceTopic, forc
   }
 
   // Submit HeyGen render — non-blocking failure gracefully falls back to text-only pending
-  const render = await submitHeyGenRender(scriptTemplate, 'vovax', usedAvatarIds).catch(() => null);
+  const render = await submitHeyGenRender(scriptTemplate, 'vovax', usedAvatarIds, topic).catch(() => null);
   const status = render ? 'rendering' : 'pending';
 
   const id  = uid();
@@ -695,7 +832,7 @@ router.get('/vovax/next-approved', async (req, res) => {
   if (!item.el_voice_id) {
     try {
       const usedIds = await recentAvatarIds('vovax', 5);
-      const picks   = await getTopPicks('vovax', usedIds);
+      const picks   = await getTopPicks('vovax', usedIds, TOPIC_ENERGY[item.topic] ?? null);
       item.el_voice_id   = picks.el_voice_id;
       item.el_voice_name = picks.el_voice_name;
       item.avatar_name   = picks.avatar_name;
@@ -751,7 +888,7 @@ router.get('/signal/brief', async (req, res) => {
 
     let picks = { avatar_id: null, avatar_name: null, avatar_gender: null, voice_id: null, voice_name: null, el_voice_id: null, el_voice_name: null };
     try {
-      picks = await getTopPicks('signal', usedAvatarIds);
+      picks = await getTopPicks('signal', usedAvatarIds, TOPIC_ENERGY[topic] ?? null);
       // Regression check — same gate as VOVAX path
       if (picks.avatar_id) {
         assertGenderPairing({

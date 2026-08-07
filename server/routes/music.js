@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url';
 import pool from '../db/index.js';
 import { requireAuth } from '../middleware/auth.js';
 import { captureError } from '../sentry.js';
-import { getLatestTrend } from './trends.js';
+import { getLatestTrend, GENRES, GENRE_KEYS } from './trends.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const router = Router();
@@ -41,19 +41,18 @@ const MOOD_POOL = [
   'אורבני ומדוכא', 'מרחב פתוח ואינסופי',
 ];
 
-// Real chart data (Beatport Melodic House & Techno, weekly-refreshed via trend_intelligence
-// when available) shows BOTH major and minor keys charting — the old pool was minor-only,
-// which was the actual mechanism behind the "sameness" complaint. Static fallback used only
-// when no recent trend pull exists yet.
-const MAJOR_KEY_POOL = ['E major', 'C major', 'D major'];
-const MINOR_KEY_POOL = ['G minor', 'F minor', 'B minor', 'A minor', 'D minor'];
-
-const REFERENCE_ARTIST_POOL = ['Tale Of Us', 'Anyma', 'ARTBAT', 'Stephan Bodzin', 'Adriatique', 'Colyn', 'Innellea', 'Yotto'];
+// Genre is per-track, not company-wide — VOVAX spans melodic house/techno, tech
+// house, minimal, house, afro house, progressive house, electronica, and EDM/
+// mainstage (see GENRES in trends.js). Each brief picks ONE genre, then pulls
+// THAT genre's real chart data (or its own static fallback below, never a
+// different genre's numbers). GENRE_ROTATION avoids repeating the same style
+// back-to-back the way the old single-genre pool always did.
+const GENRE_ROTATION = GENRE_KEYS;
 
 const ARRANGEMENT_ENERGY_POOL = [
-  { key: 'deep-cinematic',          genreFlavor: 'Heavy melodic techno, deep cinematic',             desc: 'wide atmospheric space, slow-building tension, minimal percussion until late arrangement' },
-  { key: 'festival-anthem',         genreFlavor: 'Melodic techno with progressive house lift',        desc: 'anthemic lead melody, euphoric build, festival-ready peak' },
-  { key: 'percussive-tech-leaning', genreFlavor: 'Melodic techno with tech house percussive drive',   desc: 'groove-forward, tighter percussion, rolling low end, club-functional' },
+  { key: 'deep-cinematic',          desc: 'wide atmospheric space, slow-building tension, minimal percussion until late arrangement' },
+  { key: 'festival-anthem',         desc: 'anthemic lead melody, euphoric build, festival-ready peak' },
+  { key: 'percussive-tech-leaning', desc: 'groove-forward, tighter percussion, rolling low end, club-functional' },
 ];
 
 const VOCAL_FEATURE_ROTATION = [false, false, true, false, true]; // ~40% baseline, biased upward when trend supports it
@@ -107,7 +106,7 @@ function buildPrompt({
   bassline = 'rolling hypnotic bassline',
   pad = 'dark atmospheric pads',
   kick = 'driving four-on-the-floor kick',
-  genreFlavor = 'Heavy melodic techno',
+  genreFlavor = 'Melodic House & Techno', // fallback only — real calls always pass the picked genre + arrangement desc
   referenceArtist = null,
   vocalFeature = false,
   userBrief = '',
@@ -161,16 +160,24 @@ async function amitBrief() {
     ?? KICK_POOL[Math.floor(Math.random() * KICK_POOL.length)];
   const weirdness = WEIRDNESS_ROTATION.find(w => !usedWeirdness.includes(w)) ?? 0;
 
-  // ── Variation quota: key (major/minor), bpm, vocal feature, reference
-  // artist, arrangement energy — computed against the last team-A track,
-  // fed by real trend data when a recent pull exists (fallback to static
-  // pools otherwise). This is the actual fix for the sameness pattern:
-  // the old code had zero major keys and 3 fixed BPM values, full stop.
-  const trend = await getLatestTrend().catch(() => null);
+  // ── Variation quota: genre, key (major/minor), bpm, vocal feature, reference
+  // artist, arrangement energy — computed against the last team-A track. Genre
+  // is picked FIRST (VOVAX spans multiple styles, not one fixed aesthetic — see
+  // GENRES in trends.js), then that specific genre's real chart data feeds the
+  // rest, falling back to that genre's own static ranges if no recent pull
+  // exists. This is the actual fix for the sameness pattern: the old code had
+  // zero major keys, 3 fixed BPM values, and a single hardcoded genre, full stop.
   const { rows: recentVariation } = await pool.query(
     `SELECT * FROM creative_variation_log WHERE team='A' ORDER BY created_at DESC LIMIT 3`
   );
   const lastEntry = recentVariation[0] ?? null;
+
+  const usedGenres = new Set(recentVariation.map(r => r.genre).filter(Boolean));
+  const genreKey = GENRE_ROTATION.find(g => !usedGenres.has(g))
+    ?? GENRE_ROTATION[Math.floor(Math.random() * GENRE_ROTATION.length)];
+  const genreDef = GENRES[genreKey];
+
+  const trend = await getLatestTrend(genreKey).catch(() => null);
 
   const trendMajorLetters = trend?.major_keys ? trend.major_keys.split(',').filter(Boolean) : [];
   const trendMinorLetters = trend?.minor_keys ? trend.minor_keys.split(',').filter(Boolean) : [];
@@ -181,16 +188,18 @@ async function amitBrief() {
     : Math.random() < 0.5;
 
   const keyLetterPool = isMajor
-    ? (trendMajorLetters.length ? trendMajorLetters : MAJOR_KEY_POOL.map(k => k.split(' ')[0]))
-    : (trendMinorLetters.length ? trendMinorLetters : MINOR_KEY_POOL.map(k => k.split(' ')[0]));
+    ? (trendMajorLetters.length ? trendMajorLetters : genreDef.fallbackMajor)
+    : (trendMinorLetters.length ? trendMinorLetters : genreDef.fallbackMinor);
   const usedKeySignatures = new Set(recentVariation.map(r => r.key_signature).filter(Boolean));
   const keyLetter = keyLetterPool.find(l => !usedKeySignatures.has(`${l} ${isMajor ? 'major' : 'minor'}`))
     ?? keyLetterPool[Math.floor(Math.random() * keyLetterPool.length)];
   const key = `${keyLetter} ${isMajor ? 'major' : 'minor'}`;
 
+  // Reference artists are scoped to the picked genre — Anyma for melodic techno,
+  // Black Coffee for afro house, etc. Not one global pool for every style.
   const usedRefs = new Set(recentVariation.map(r => r.reference_artist).filter(Boolean));
-  let referenceArtist = REFERENCE_ARTIST_POOL.find(a => !usedRefs.has(a))
-    ?? REFERENCE_ARTIST_POOL[Math.floor(Math.random() * REFERENCE_ARTIST_POOL.length)];
+  let referenceArtist = genreDef.refArtists.find(a => !usedRefs.has(a))
+    ?? genreDef.refArtists[Math.floor(Math.random() * genreDef.refArtists.length)];
 
   const usedEnergies = new Set(recentVariation.map(r => r.arrangement_energy).filter(Boolean));
   const arrangementEnergyObj = ARRANGEMENT_ENERGY_POOL.find(e => !usedEnergies.has(e.key))
@@ -202,9 +211,9 @@ async function amitBrief() {
   let vocalFeature = vocalPool.find(v => !usedVocalFlags.includes(v));
   if (vocalFeature === undefined) vocalFeature = Math.random() < (guriSupported ? 0.55 : 0.35);
 
-  const bpmMin = trend?.bpm_min ?? 118;
-  const bpmMax = trend?.bpm_max ?? 130;
-  const contextBpmRange = contextHour === 'chill'   ? [Math.max(105, bpmMin - 10), bpmMin + 4]
+  const bpmMin = trend?.bpm_min ?? genreDef.fallbackBpm[0];
+  const bpmMax = trend?.bpm_max ?? genreDef.fallbackBpm[1];
+  const contextBpmRange = contextHour === 'chill'   ? [Math.max(80, bpmMin - 10), bpmMin + 4]
                         : contextHour === 'opening' ? [bpmMin, Math.round((bpmMin + bpmMax) / 2)]
                         : contextHour === 'peak'    ? [Math.round((bpmMin + bpmMax) / 2), bpmMax]
                         : [bpmMin, bpmMax];
@@ -216,8 +225,9 @@ async function amitBrief() {
   // Guarantee at least 2 axes actually differ from the immediately previous track
   const axesVaried = [];
   if (!lastEntry) {
-    axesVaried.push('key', 'bpm', 'vocal', 'reference_artist', 'arrangement_energy'); // first-ever entry
+    axesVaried.push('genre', 'key', 'bpm', 'vocal', 'reference_artist', 'arrangement_energy'); // first-ever entry
   } else {
+    if (lastEntry.genre !== genreKey) axesVaried.push('genre');
     if (lastEntry.is_major !== isMajor) axesVaried.push('key');
     if (lastEntry.bpm == null || Math.abs(lastEntry.bpm - bpm) >= 3) axesVaried.push('bpm');
     if (!!lastEntry.has_vocal_feature !== !!vocalFeature) axesVaried.push('vocal');
@@ -225,8 +235,8 @@ async function amitBrief() {
     if (lastEntry.arrangement_energy !== arrangementEnergyObj.key) axesVaried.push('arrangement_energy');
 
     if (axesVaried.length < 2 && !axesVaried.includes('reference_artist')) {
-      const forced = REFERENCE_ARTIST_POOL.find(a => a !== lastEntry.reference_artist)
-        ?? REFERENCE_ARTIST_POOL[(REFERENCE_ARTIST_POOL.indexOf(lastEntry.reference_artist) + 1) % REFERENCE_ARTIST_POOL.length];
+      const forced = genreDef.refArtists.find(a => a !== lastEntry.reference_artist)
+        ?? genreDef.refArtists[(genreDef.refArtists.indexOf(lastEntry.reference_artist) + 1) % genreDef.refArtists.length];
       referenceArtist = forced;
       axesVaried.push('reference_artist');
     }
@@ -236,12 +246,12 @@ async function amitBrief() {
   const duration_s  = PLATFORM_SECS[platform] ?? 180;
   const prompt = buildPrompt({
     contextHour, bpmOverride: bpm, weirdness, energyLevel, mood, key, bassline, pad, kick,
-    genreFlavor: arrangementEnergyObj.genreFlavor, referenceArtist, vocalFeature,
+    genreFlavor: `${genreDef.label}, ${arrangementEnergyObj.desc}`, referenceArtist, vocalFeature,
   });
 
   return {
     contextHour, platform, bpm, weirdness, energyLevel, mood, duration_s, prompt,
-    key, bassline, pad, kick,
+    key, bassline, pad, kick, genre: genreKey,
     isMajor, referenceArtist, arrangementEnergy: arrangementEnergyObj.key, vocalFeature, axesVaried,
   };
 }
@@ -258,7 +268,7 @@ async function triggerGeneration(params, regenFrom = null, regenCount = 0) {
     key = 'G minor', bassline = 'rolling hypnotic bassline',
     pad = 'dark atmospheric pads', kick = 'driving four-on-the-floor kick',
     isMajor = null, referenceArtist = null, arrangementEnergy = null,
-    vocalFeature = false, axesVaried = null,
+    vocalFeature = false, axesVaried = null, genre = null,
   } = params;
   const id  = uid();
   const now = Date.now();
@@ -283,16 +293,16 @@ async function triggerGeneration(params, regenFrom = null, regenCount = 0) {
      weirdness, energyLevel, key, bassline, pad, kick, regenCount, regenFrom, now]
   );
 
-  console.log(`Music[עמית]: triggered ${id} | context=${contextHour} platform=${platform} bpm=${bpm} key="${key}" mood="${mood}"`);
+  console.log(`Music[עמית]: triggered ${id} | genre=${genre} context=${contextHour} platform=${platform} bpm=${bpm} key="${key}" mood="${mood}"`);
 
   // Log the creative decision for variation-quota visibility — only for genuinely
   // new briefs. Regeneration retries reuse the same decision, not a new one.
   if (!regenFrom && axesVaried) {
     await pool.query(
       `INSERT INTO creative_variation_log
-       (team, track_ref, key_signature, is_major, bpm, has_vocal_feature, reference_artist, arrangement_energy, axes_varied, created_at)
-       VALUES ('A', $1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-      [id, key, isMajor, bpm, vocalFeature, referenceArtist, arrangementEnergy, axesVaried.join(','), now]
+       (team, track_ref, genre, key_signature, is_major, bpm, has_vocal_feature, reference_artist, arrangement_energy, axes_varied, created_at)
+       VALUES ('A', $1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+      [id, genre, key, isMajor, bpm, vocalFeature, referenceArtist, arrangementEnergy, axesVaried.join(','), now]
     );
     console.log(`Music[גיא]: variation axes for ${id}: ${axesVaried.join(', ')}`);
   }
@@ -586,7 +596,7 @@ export async function runMusicCycle() {
     bassline:    params.bassline,
     pad:         params.pad,
     kick:        params.kick,
-    genreFlavor: ARRANGEMENT_ENERGY_POOL.find(e => e.key === params.arrangementEnergy)?.genreFlavor,
+    genreFlavor: `${GENRES[params.genre]?.label ?? 'Melodic House & Techno'}, ${ARRANGEMENT_ENERGY_POOL.find(e => e.key === params.arrangementEnergy)?.desc ?? ''}`,
     referenceArtist: params.referenceArtist,
     vocalFeature:    params.vocalFeature,
     userBrief,

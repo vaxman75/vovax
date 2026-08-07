@@ -5,53 +5,105 @@ import { captureError } from '../sentry.js';
 
 const router = Router();
 
-// ── Weekly trend pull — real, refreshing signal from actual charts ────────────
-// Uses Claude's web_search tool (server-executed) to research current Beatport
-// Melodic House & Techno Top 100 + Hype 100, and adjacent Tech House / Progressive
-// House charts. This is a live web lookup each time it runs — not a static
-// snapshot baked into a SKILL.md file.
+// ── Genre catalog — VOVAX spans multiple styles, not one fixed aesthetic ──────
+// Each brief (Team A or Team B) targets ONE of these per track/piece. Reference
+// artists and fallback ranges are used only when no fresh trend pull exists yet
+// for that specific genre — real chart data always wins when available.
+export const GENRES = {
+  melodic_house_techno: {
+    label: 'Melodic House & Techno', beatportGenre: 'Melodic House & Techno',
+    refArtists: ['Tale Of Us', 'Anyma', 'ARTBAT', 'Stephan Bodzin', 'Adriatique', 'Delta Vaults'],
+    fallbackBpm: [118, 128], fallbackMajor: ['E', 'C', 'D'], fallbackMinor: ['G', 'F', 'B'],
+  },
+  tech_house: {
+    label: 'Tech House', beatportGenre: 'Tech House',
+    refArtists: ['Fisher', 'John Summit', 'Chris Lake', 'Dennis Cruz'],
+    fallbackBpm: [124, 128], fallbackMajor: ['F', 'G'], fallbackMinor: ['A', 'D'],
+  },
+  minimal_deep_tech: {
+    label: 'Minimal / Deep Tech', beatportGenre: 'Minimal / Deep Tech',
+    refArtists: ['Recondite', 'Fideles', 'Better Lost Than Stupid'],
+    fallbackBpm: [122, 128], fallbackMajor: ['C'], fallbackMinor: ['G', 'A'],
+  },
+  house: {
+    label: 'House', beatportGenre: 'House',
+    refArtists: ['Disclosure', 'Purple Disco Machine', 'Dom Dolla'],
+    fallbackBpm: [122, 126], fallbackMajor: ['F', 'C'], fallbackMinor: ['D', 'A'],
+  },
+  afro_house: {
+    label: 'Afro House', beatportGenre: 'Afro House',
+    refArtists: ['Black Coffee', 'Culoe De Song', 'Enoo Napa'],
+    fallbackBpm: [118, 123], fallbackMajor: ['D'], fallbackMinor: ['F', 'G'],
+  },
+  progressive_house: {
+    label: 'Progressive House', beatportGenre: 'Progressive House',
+    refArtists: ['Eli & Fur', 'Lane 8', 'Yotto'],
+    fallbackBpm: [118, 124], fallbackMajor: ['A', 'E'], fallbackMinor: ['D', 'B'],
+  },
+  electronica: {
+    label: 'Electronica', beatportGenre: 'Electronica',
+    refArtists: ['Bonobo', 'ODESZA', 'RÜFÜS DU SOL'],
+    fallbackBpm: [100, 120], fallbackMajor: ['C', 'G'], fallbackMinor: ['A'],
+  },
+  edm_mainstage: {
+    label: 'EDM / Mainstage', beatportGenre: 'Big Room',
+    refArtists: ['Anyma', 'Martin Garrix', 'Timmy Trumpet'],
+    fallbackBpm: [126, 150], fallbackMajor: ['F', 'C'], fallbackMinor: ['A', 'E'],
+  },
+};
+export const GENRE_KEYS = Object.keys(GENRES);
+
+// ── Trend pull — real, refreshing, per-genre signal ────────────────────────────
+// One Claude call (not one per genre — that would be 8x the cost) researches
+// ALL genres' current Beatport charts via web_search, returns a per-genre array.
 export async function pullTrendIntelligence() {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY not set');
 
-  const system = `You are גיא, trend intelligence analyst at VOVAX (electronic music project). Research CURRENT chart data — do not rely on general knowledge, actually search.
+  const genreList = GENRE_KEYS.map(k => `"${k}" → Beatport "${GENRES[k].beatportGenre}"`).join('\n');
 
-Research these right now:
-1. Beatport "Melodic House & Techno" Top 100 and Hype 100
-2. Beatport "Tech House" Top 100 (adjacent genre, for cross-signal)
-3. Beatport "Progressive House" Top 100 (adjacent genre, for cross-signal)
+  const system = `You are גיא, trend intelligence analyst at VOVAX (electronic music project spanning multiple styles). Research CURRENT chart data — do not rely on general knowledge, actually search.
 
-Extract real signal:
-- BPM range actually spanned by charting tracks (not a guess — cite what you found)
-- Which musical keys are charting, split major vs minor (real track examples if you can find them)
-- Whether vocal-feature/collab tracks are charting prominently right now, and how strongly
-- Which labels currently dominate (e.g. Afterlife, Anjunadeep, Innervisions, Keinemusik, Diynamic, etc.) — only list ones you actually find evidence for
-- Approximate remix vs. original track balance on these charts
+VOVAX produces across ALL of these genres, not one fixed style. Research EACH genre's current Beatport Top 100 separately:
+${genreList}
 
-After researching, respond with ONLY a JSON object, no other text, no markdown fences:
-{"bpm_min":number,"bpm_max":number,"major_keys":["E","C","D"],"minor_keys":["G","F","B"],"vocal_feature_trend":"one paragraph, cite what you found","dominant_labels":["..."],"remix_ratio":"one sentence","guri_opportunity_flag":boolean,"raw_summary":"2-3 sentence synthesis of what you actually found, for audit purposes"}
+For EACH genre, extract real signal:
+- BPM range actually spanned by charting tracks (cite what you found, don't guess)
+- Which musical keys are charting, split major vs minor
+- Whether vocal-feature/collab tracks are charting prominently in THIS genre specifically
+- Dominant labels for THIS genre specifically (only ones you find real evidence for)
+- Remix vs original balance
 
-guri_opportunity_flag should be true only if you found real evidence that vocal-feature collabs are currently performing well on these charts (not a default true).`;
+Respond with ONLY a JSON object, no other text, no markdown fences:
+{
+  "genres": {
+    "melodic_house_techno": {"bpm_min":number,"bpm_max":number,"major_keys":["E","C"],"minor_keys":["G","F"],"vocal_feature_trend":"short","dominant_labels":["..."],"remix_ratio":"short"},
+    "tech_house": {...same shape...},
+    ... one entry per genre key listed above ...
+  },
+  "guri_opportunity_flag": boolean,
+  "guri_note": "1-2 sentences — is there real evidence ANY genre's vocal-collabs are charting strongly right now? Company-wide, not per-genre.",
+  "raw_summary": "3-4 sentence overall synthesis for audit purposes"
+}
+
+If you can't find clear signal for a genre's specific field, use null for that field rather than guessing. guri_opportunity_flag should be true only with real evidence, not a default.`;
 
   const resp = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
     body: JSON.stringify({
       model: 'claude-haiku-4-5-20251001',
-      max_tokens: 4096,
+      max_tokens: 8192,
       system,
-      messages: [{ role: 'user', content: 'Research the current charts now and report back per the format specified.' }],
-      tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 8 }],
+      messages: [{ role: 'user', content: 'Research the current Beatport charts for each genre now and report back per the format specified.' }],
+      tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 20 }],
     }),
   });
 
   const raw = await resp.json();
   if (!resp.ok) throw new Error(`Trend pull failed: ${raw?.error?.message ?? resp.status}`);
 
-  const text = (raw.content ?? [])
-    .filter(b => b.type === 'text')
-    .map(b => b.text)
-    .join('\n');
+  const text = (raw.content ?? []).filter(b => b.type === 'text').map(b => b.text).join('\n');
 
   let parsed = null;
   try {
@@ -60,50 +112,56 @@ guri_opportunity_flag should be true only if you found real evidence that vocal-
     const match = text.match(/\{[\s\S]*\}/);
     if (match) { try { parsed = JSON.parse(match[0]); } catch (_2) { /* fall through */ } }
   }
-
-  if (!parsed) {
-    throw new Error(`Trend pull: JSON parse failed. Raw text: ${text.slice(0, 300)}`);
+  if (!parsed || !parsed.genres) {
+    throw new Error(`Trend pull: JSON parse failed. Raw text: ${text.slice(0, 400)}`);
   }
 
-  // Strip web_search citation markup (<cite index="...">...</cite>) — keep the underlying
-  // text, drop the tags. The tags prove the claim was grounded in an actual search result,
-  // but they're noise for anything rendered to a human (digest email, admin dashboard).
   const stripCites = (s) => typeof s === 'string' ? s.replace(/<\/?cite[^>]*>/g, '') : s;
+  const pulledAt = Date.now();
+  const guriFlag = !!parsed.guri_opportunity_flag;
+  const guriNote = stripCites(parsed.guri_note) ?? null;
+  const rawSummary = stripCites(parsed.raw_summary) ?? null;
 
-  const row = {
-    pulled_at:             Date.now(),
-    bpm_min:               parsed.bpm_min ?? null,
-    bpm_max:               parsed.bpm_max ?? null,
-    major_keys:            Array.isArray(parsed.major_keys) ? parsed.major_keys.join(',') : null,
-    minor_keys:            Array.isArray(parsed.minor_keys) ? parsed.minor_keys.join(',') : null,
-    vocal_feature_trend:   stripCites(parsed.vocal_feature_trend) ?? null,
-    dominant_labels:       Array.isArray(parsed.dominant_labels) ? parsed.dominant_labels.join(',') : null,
-    remix_ratio:           stripCites(parsed.remix_ratio) ?? null,
-    guri_opportunity_flag: !!parsed.guri_opportunity_flag,
-    raw_summary:           stripCites(parsed.raw_summary) ?? null,
-  };
+  const rows = [];
+  for (const genreKey of GENRE_KEYS) {
+    const g = parsed.genres[genreKey] ?? {};
+    const row = {
+      pulled_at: pulledAt,
+      genre: genreKey,
+      bpm_min: g.bpm_min ?? null,
+      bpm_max: g.bpm_max ?? null,
+      major_keys: Array.isArray(g.major_keys) ? g.major_keys.join(',') : null,
+      minor_keys: Array.isArray(g.minor_keys) ? g.minor_keys.join(',') : null,
+      vocal_feature_trend: stripCites(g.vocal_feature_trend) ?? null,
+      dominant_labels: Array.isArray(g.dominant_labels) ? g.dominant_labels.join(',') : null,
+      remix_ratio: stripCites(g.remix_ratio) ?? null,
+      guri_opportunity_flag: guriFlag,
+      raw_summary: guriNote ? `${rawSummary ?? ''} | GURI: ${guriNote}` : rawSummary,
+    };
+    rows.push(row);
+    await pool.query(
+      `INSERT INTO trend_intelligence
+       (pulled_at, genre, bpm_min, bpm_max, major_keys, minor_keys, vocal_feature_trend, dominant_labels, remix_ratio, guri_opportunity_flag, raw_summary)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+      [row.pulled_at, row.genre, row.bpm_min, row.bpm_max, row.major_keys, row.minor_keys,
+       row.vocal_feature_trend, row.dominant_labels, row.remix_ratio, row.guri_opportunity_flag, row.raw_summary]
+    );
+  }
 
-  await pool.query(
-    `INSERT INTO trend_intelligence
-     (pulled_at, bpm_min, bpm_max, major_keys, minor_keys, vocal_feature_trend, dominant_labels, remix_ratio, guri_opportunity_flag, raw_summary)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
-    [row.pulled_at, row.bpm_min, row.bpm_max, row.major_keys, row.minor_keys,
-     row.vocal_feature_trend, row.dominant_labels, row.remix_ratio, row.guri_opportunity_flag, row.raw_summary]
-  );
-
-  console.log(`Trends[גיא]: pulled — BPM ${row.bpm_min}-${row.bpm_max}, major=[${row.major_keys}], minor=[${row.minor_keys}], guri_flag=${row.guri_opportunity_flag}`);
-  return row;
+  console.log(`Trends[גיא]: pulled ${rows.length} genres — guri_flag=${guriFlag}`);
+  return { rows, guriFlag, guriNote };
 }
 
-// Returns the latest trend row, or null if none pulled yet / stale beyond maxAgeDays.
-export async function getLatestTrend(maxAgeDays = 10) {
+// Returns the latest trend row for a SPECIFIC genre, or null if none / stale.
+export async function getLatestTrend(genreKey, maxAgeDays = 10) {
   const { rows } = await pool.query(
-    `SELECT * FROM trend_intelligence ORDER BY pulled_at DESC LIMIT 1`
+    `SELECT * FROM trend_intelligence WHERE genre = $1 ORDER BY pulled_at DESC LIMIT 1`,
+    [genreKey]
   );
   const row = rows[0];
   if (!row) return null;
   const ageMs = Date.now() - Number(row.pulled_at);
-  if (ageMs > maxAgeDays * 24 * 3600 * 1000) return null; // stale — caller should fall back to static pools
+  if (ageMs > maxAgeDays * 24 * 3600 * 1000) return null; // stale — caller falls back to GENRES[genreKey] static data
   return row;
 }
 
@@ -111,8 +169,8 @@ export async function getLatestTrend(maxAgeDays = 10) {
 
 router.post('/pull', requireAuth, async (_req, res) => {
   try {
-    const row = await pullTrendIntelligence();
-    res.json({ ok: true, trend: row });
+    const result = await pullTrendIntelligence();
+    res.json({ ok: true, ...result });
   } catch (err) {
     captureError(err, { dept: 'music', fn: 'pullTrendIntelligence-manual' });
     res.status(500).json({ error: err.message });
@@ -121,14 +179,17 @@ router.post('/pull', requireAuth, async (_req, res) => {
 
 router.get('/latest', requireAuth, async (_req, res) => {
   try {
-    const { rows } = await pool.query(`SELECT * FROM trend_intelligence ORDER BY pulled_at DESC LIMIT 1`);
+    // Latest row per genre (not just the single newest row across all genres)
+    const { rows } = await pool.query(
+      `SELECT DISTINCT ON (genre) * FROM trend_intelligence ORDER BY genre, pulled_at DESC`
+    );
     const { rows: genreRows } = await pool.query(
       `SELECT genre, COUNT(*)::int AS cnt FROM tracks GROUP BY genre ORDER BY cnt DESC`
     );
     const { rows: variationRows } = await pool.query(
       `SELECT * FROM creative_variation_log ORDER BY created_at DESC LIMIT 20`
     );
-    res.json({ trend: rows[0] ?? null, genreDistribution: genreRows, variationLog: variationRows });
+    res.json({ trends: rows, genreDistribution: genreRows, variationLog: variationRows });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

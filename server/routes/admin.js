@@ -468,6 +468,19 @@ router.post('/music-queue/purge-stale', requireAuth, async (_req, res) => {
   }
 });
 
+// Clear vision-cache entries that failed due to a technical error (not a real
+// casting verdict) so they get genuinely re-checked instead of serving a stale bug.
+router.post('/avatar-vision-cache/purge-errors', requireAuth, async (_req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `DELETE FROM avatar_vision_cache WHERE visual_notes LIKE '%vision check error%' RETURNING avatar_id`
+    );
+    res.json({ ok: true, deletedIds: rows.map(r => r.avatar_id) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── Chat ──────────────────────────────────────────────────────────────────────
 
 router.post('/chat', requireAuth, async (req, res) => {
