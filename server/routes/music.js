@@ -6,6 +6,7 @@ import pool from '../db/index.js';
 import { requireAuth } from '../middleware/auth.js';
 import { captureError } from '../sentry.js';
 import { getLatestTrend, GENRES, GENRE_KEYS } from './trends.js';
+import { logGate } from '../gateLog.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const router = Router();
@@ -287,10 +288,10 @@ async function triggerGeneration(params, regenFrom = null, regenCount = 0) {
     `INSERT INTO music_queue
      (id,status,request_id,prompt,duration_s,bpm,model,batch_size,context_hour,platform,mood,
       weirdness,energy_level,key_signature,bassline_desc,pad_desc,kick_desc,
-      rejection_count,regenerated_from,created_at,updated_at)
-     VALUES($1,'generating',$2,$3,$4,$5,'ace-step-xl',1,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$17)`,
+      rejection_count,regenerated_from,genre,created_at,updated_at)
+     VALUES($1,'generating',$2,$3,$4,$5,'ace-step-xl',1,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$18)`,
     [id, data.request_id, prompt, duration_s, bpm, contextHour, platform, mood,
-     weirdness, energyLevel, key, bassline, pad, kick, regenCount, regenFrom, now]
+     weirdness, energyLevel, key, bassline, pad, kick, regenCount, regenFrom, genre, now]
   );
 
   console.log(`Music[עמית]: triggered ${id} | genre=${genre} context=${contextHour} platform=${platform} bpm=${bpm} key="${key}" mood="${mood}"`);
@@ -377,15 +378,24 @@ async function runTaliaQA(item) {
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY not set');
 
   const urls = item.audio_urls ?? [];
+  const genreDef = item.genre ? GENRES[item.genre] : null;
   const briefLines = [
     item.mood         && `Mood/intent: ${item.mood}`,
     item.context_hour && `Context: ${item.context_hour} set`,
     item.platform     && `Target platform: ${item.platform}`,
     item.key_signature && `Key: ${item.key_signature}`,
+    genreDef          && `Genre: ${genreDef.label} — craft standard: ${genreDef.craftHint}`,
   ].filter(Boolean).join('\n');
 
+  // Genre-aware as of 2026-08-07 — this used to hardcode "Heavy melodic techno"
+  // as THE VOVAX style regardless of what genre the track actually targeted,
+  // meaning style_fit was checked against the wrong standard for any other genre.
+  const styleFitLine = genreDef
+    ? `VOVAX style for THIS track: ${genreDef.label}. References: ${genreDef.refArtists.join(', ')}. Real craft standard for this genre: ${genreDef.craftHint}.`
+    : `No genre recorded on this item (pre-2026-08-07 item) — evaluate style fit against the prompt text itself.`;
+
   const system = `You are טליה, QA specialist at VOVAX. Evaluate AI-generated music against VOVAX quality criteria.
-VOVAX style: Heavy melodic techno / minimal power grooves / cinematic tension. References: Tale Of Us, Anyma, ARTBAT, Stephan Bodzin.
+${styleFitLine}
 You cannot listen to audio — for listening-dependent criteria, provide a precise checklist based on what the prompt should produce.
 Respond with valid JSON only:
 {"verdict":"APPROVED"|"NEEDS_FIX"|"REJECTED","criteria":{"0_clean_stems":{"status":"PASS"|"FAIL"|"LISTEN_REQUIRED","note":"..."},"1_style_fit":{"status":"PASS"|"FAIL"|"NEEDS_FIX","note":"..."},"2_technical":{"status":"PASS"|"FAIL"|"LISTEN_REQUIRED","note":"..."},"3_completeness":{"status":"PASS"|"FAIL"|"LISTEN_REQUIRED","note":"..."},"4_originality":{"status":"PASS"|"FAIL"|"NEEDS_FIX","note":"..."}},"summary":"one sentence","fix_if_rejected":"only when NEEDS_FIX or REJECTED"}`;
@@ -426,6 +436,7 @@ Respond with valid JSON only:
     [qa.verdict, JSON.stringify(qa), now, item.id]
   );
   console.log(`Music[טליה]: ${item.id} → ${qa.verdict} | ${qa.summary}`);
+  await logGate('qa_talia_yuval', item.id, qa.verdict === 'REJECTED' ? 'rejected' : 'passed', qa.summary ?? null);
 
   if (qa.verdict === 'REJECTED') {
     await maybeRegenerate(item, `טליה rejected: ${qa.summary}`);
@@ -442,16 +453,23 @@ async function runAmitGate(item) {
 
   const skill = loadSkill('amit-creation.md');
   const talia = item.talia_result ?? {};
+  const genreDef = item.genre ? GENRES[item.genre] : null;
+  const craftStandard = genreDef
+    ? `ז'אנר שנבחר: ${genreDef.label}. סטנדרט קראפט אמיתי לז'אנר הזה (references/genre-craft-guide.md): ${genreDef.craftHint}.`
+    : `אין ז'אנר רשום על הפריט הזה (פריט ישן מלפני 2026-08-07) — בדוק מול הפרומפט עצמו.`;
 
   const system = `${skill}
 
 ## הוראת תגובה — Manager Gate (Mandatory)
-אתה מבצע שער מנהל חובה לפני שפריט מגיע לבעלים.
+אתה מבצע שער מנהל חובה לפני שפריט מגיע לבעלים — זה שער איכות אמיתי, לא חותמת גומי.
+${craftStandard}
 בדוק ארבעה ממדים:
-1. האם הפרומפט מייצג את רמת המותג של VOVAX? (אסתטיקה, heavy melodic techno)
+1. האם הפרומפט מייצג בפועל את סטנדרט הקראפט של הז'אנר שצוין למעלה — לא ז'אנר אחר, ולא תיאור גנרי?
 2. האם פסיקת טליה לגבי style fit ו-originality תואמת לסטנדרט שלך?
 3. האם אתה כמנהל המחלקה מוכן לשים את שמך על הפריט הזה?
 4. האם זה עומד בסטנדרט "מהטובים ביותר בעולם" — לא "מספיק טוב"?
+אם התשובה לא ברורה וחד-משמעית ל-4 השאלות — דחה. אל תעביר "כדי להיות בטוח" — פריט דחוי נמחק
+ונוצר מחדש (לא נשמר "רק במקרה"), זה הכלל.
 החזר JSON בלבד — ללא markdown:
 {"approved":<boolean>,"brand_standard_met":<boolean>,"reason":"<פסק דין מפורט — מה בדקת, מה עמד/לא עמד בסטנדרט>","production_notes":"<הוראה לבן/לצוות אם צריך — ריק אם לא>"}`;
 
@@ -504,12 +522,14 @@ ${talia.fix_if_rejected ? `הערת תיקון טליה: ${talia.fix_if_rejected
       [fullReason, now, item.id]
     );
     console.log(`Music[עמית]: APPROVED ${item.id} → user_pending | ${gate.reason}`);
+    await logGate('music_elad', item.id, 'passed', gate.reason);
   } else {
     await pool.query(
       `UPDATE music_queue SET amit_approved=false, amit_reason=$1, amit_at=$2, updated_at=$2 WHERE id=$3`,
       [fullReason, now, item.id]
     );
     console.log(`Music[עמית]: REJECTED ${item.id} | ${gate.reason}`);
+    await logGate('music_elad', item.id, 'rejected', gate.reason);
     await maybeRegenerate(item, `עמית rejected: ${gate.reason}`);
   }
 }
@@ -543,6 +563,7 @@ async function maybeRegenerate(item, reason) {
       bassline:     item.bassline_desc ?? 'rolling hypnotic bassline',
       pad:          item.pad_desc      ?? 'dark atmospheric pads',
       kick:         item.kick_desc     ?? 'driving four-on-the-floor kick',
+      genre:        item.genre ?? null,
     };
     await triggerGeneration(params, item.id, rejCount);
   } catch (e) {

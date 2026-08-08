@@ -3,6 +3,7 @@ import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import pool from '../db/index.js';
+import { logGate } from '../gateLog.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -320,6 +321,8 @@ async function getTopPicks(persona, usedAvatarIds = [], energyHint = null) {
     voice_name:    topVoice?.name        ?? null,
     el_voice_id:   elVoice?.voice_id     ?? null,
     el_voice_name: elVoice?.name         ?? null,
+    vision_score:  topAvatar?._visionScore ?? null,
+    vision_notes:  topAvatar?._notes       ?? null,
   };
 }
 
@@ -330,12 +333,39 @@ async function submitHeyGenRender(script, persona, usedAvatarIds = [], topic = n
 
   const energyHint = TOPIC_ENERGY[topic] ?? null;
 
+  // דניאל's ART gate (2026-08-07): a real minimum bar, not a rubber stamp.
+  // getTopPicks() already falls back to "best available" when nothing scores
+  // well — this is the enforcement point that actually rejects the worst of
+  // those (score < 3: unambiguously corporate/wrong, e.g. "white blazer,
+  // corporate presenter") and retries once for a better option, instead of
+  // silently forwarding it to Alex "to be safe."
+  const DANIEL_ART_MIN_SCORE = 3;
   let picks;
   try { picks = await getTopPicks(persona, usedAvatarIds, energyHint); } catch (e) {
     console.error('submitHeyGenRender: getTopPicks failed:', e.message);
     return null;
   }
   if (!picks?.avatar_id || !picks?.voice_id) return null;
+
+  if (picks.vision_score !== null && picks.vision_score < DANIEL_ART_MIN_SCORE) {
+    await logGate('art_daniel', picks.avatar_id, 'rejected', `score ${picks.vision_score}/10 — ${picks.vision_notes}`);
+    console.warn(`[ART/דניאל] rejected ${picks.avatar_id} (score ${picks.vision_score}/10) — retrying with different avatar excluded`);
+    try {
+      picks = await getTopPicks(persona, [...usedAvatarIds, picks.avatar_id], energyHint);
+    } catch (e) {
+      console.error('submitHeyGenRender: retry getTopPicks failed:', e.message);
+    }
+    if (picks.vision_score !== null && picks.vision_score < DANIEL_ART_MIN_SCORE) {
+      // Still bad after one retry — log it plainly and proceed rather than halt
+      // Publishing entirely; the underlying constraint (catalog quality) needs
+      // real casting attention, not an infinite retry loop here.
+      await logGate('art_daniel', picks.avatar_id, 'rejected', `retry also below bar: score ${picks.vision_score}/10 — proceeding as last resort, needs real casting review`);
+    } else {
+      await logGate('art_daniel', picks.avatar_id, 'passed', `score ${picks.vision_score}/10 on retry`);
+    }
+  } else {
+    await logGate('art_daniel', picks.avatar_id, 'passed', picks.vision_score !== null ? `score ${picks.vision_score}/10` : 'no vision score available');
+  }
 
   // Automated regression check — every generation must pass before video is submitted
   assertGenderPairing({
@@ -521,6 +551,16 @@ async function runQaReview(item) {
     ? `- MUST NOT contain "VOVAX" or any artist name\n- Curator discovery voice, not artist voice\n- Energetic, first-person scout tone\n- No hashtags, no emojis`
     : `- First-person artist voice (dark, minimal, intimate)\n- No hashtags, no emojis\n- No corporate or marketing language`;
 
+  // שירה's actual documented brand pillars + red flags (shira-manager.md) — this
+  // QA gate is the enforcement point for her standards; she doesn't check text
+  // herself by her own documented scope, so this is where her criteria land.
+  const brandGate = !isSignal ? `\n\nBrand voice red flags (שירה, reject if ANY apply):
+- Generic artist-bio phrasing ("unique artist blending genres")
+- Marketing speak ("stay tuned for exciting news!")
+- Caption longer than 4 short lines without real narrative need
+- "we" instead of "I" (this is a solo artist POV, always first person singular)
+- Any emoji outside the fixed signature set (🎧🎛️🌌💫➤🔥) if emojis appear at all` : '';
+
   // Gender parity is guaranteed by assertGenderPairing() before render submission.
   // Pass gender as readable text only — never raw UUIDs which the model cannot interpret.
   const avatarLine = item.avatar_gender
@@ -530,7 +570,7 @@ async function runQaReview(item) {
   const durationLine = item.duration_hint
     ? `\n- Duration target set by briefing: ${item.duration_hint} — check script fits that scope`
     : `\n- Length appropriate for the platform: no unnecessary padding, no artificial shortening`;
-  const prompt = `Review this ${persona} post for publication quality.\n\nPost: "${item.script}"\nTopic: ${item.topic}${avatarLine}\n\nApproval criteria:\n${rules}${durationLine}\n- Grammatically correct and standalone-clear\n\nRespond ONLY with this JSON (no markdown, no explanation):\n{"approved": <boolean>, "reason": "<one sentence>", "issues": [<issue strings> or empty array]}`;
+  const prompt = `Review this ${persona} post for publication quality.\n\nPost: "${item.script}"\nTopic: ${item.topic}${avatarLine}\n\nApproval criteria:\n${rules}${durationLine}\n- Grammatically correct and standalone-clear${brandGate}\n\nRespond ONLY with this JSON (no markdown, no explanation):\n{"approved": <boolean>, "reason": "<one sentence>", "issues": [<issue strings> or empty array]}`;
 
   let qa = { approved: false, reason: 'QA API error', issues: [] };
   try {
@@ -555,6 +595,7 @@ async function runQaReview(item) {
     `UPDATE publish_queue SET qa_status=$1, qa_reason=$2, qa_issues=$3, qa_at=$4, qa_employee=$5 WHERE id=$6`,
     [qaStatus, qa.reason ?? null, qa.issues ?? [], Date.now(), 'yuval-contentcheck', item.id]
   );
+  await logGate('qa_talia_yuval', item.id, qaStatus === 'pass' ? 'passed' : 'rejected', qa.reason ?? null);
 
   // Auto-reject + regenerate on QA fail (max 3 attempts to prevent loops)
   if (qaStatus === 'fail') {

@@ -480,6 +480,22 @@ router.post('/decisions-log', requireAuth, async (req, res) => {
   }
 });
 
+// Manager gatekeeping upgrade (2026-08-07): pass/reject counts per gate, so
+// the pre-filter rate is measured going forward, not assumed.
+router.get('/gate-stats', requireAuth, async (_req, res) => {
+  try {
+    const { rows: counts } = await pool.query(
+      `SELECT gate, decision, COUNT(*)::int AS cnt FROM gate_log GROUP BY gate, decision ORDER BY gate, decision`
+    );
+    const { rows: recent } = await pool.query(
+      `SELECT * FROM gate_log ORDER BY created_at DESC LIMIT 30`
+    );
+    res.json({ counts, recent });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Manual cleanup — reject/fail states created before the delete-on-reject fix
 // (2026-08-07) are stuck as archived rows. This purges them retroactively.
 router.post('/music-queue/purge-stale', requireAuth, async (_req, res) => {
